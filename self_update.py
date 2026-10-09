@@ -34,6 +34,7 @@ class ReleaseInfo:
     installer_url: str
     installer_size: int = 0
     installer_sha256: str = ""
+    checksum_url: str = ""
     published_at: str = ""
 
 
@@ -110,6 +111,7 @@ def fetch_latest_release(timeout: float = 15.0) -> ReleaseInfo:
         installer_url=str(installer.get("browser_download_url") or ""),
         installer_size=int(installer.get("size") or 0),
         installer_sha256=sha,
+        checksum_url=str((checksum or {}).get("browser_download_url") or ""),
         published_at=str(data.get("published_at") or ""),
     )
 
@@ -161,10 +163,29 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest().lower()
 
 
+def _fetch_expected_checksum(release: ReleaseInfo, timeout: float = 15.0) -> str:
+    expected = release.installer_sha256.strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", expected):
+        return expected
+    if not release.checksum_url:
+        raise SelfUpdateError("Release does not provide a SHA-256 digest or checksum file.")
+    req = urllib.request.Request(release.checksum_url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            text = response.read(4096).decode("utf-8", errors="replace")
+    except (OSError, urllib.error.URLError) as exc:
+        reason = getattr(exc, "reason", str(exc))
+        raise SelfUpdateError(f"Could not fetch update checksum: {reason}") from exc
+    match = re.search(r"\b([0-9a-fA-F]{64})\b", text)
+    if not match:
+        raise SelfUpdateError("Release checksum file does not contain a valid SHA-256 hash.")
+    return match.group(1).lower()
+
+
 def verify_installer(path: Path, release: ReleaseInfo) -> str:
     actual = sha256_file(path)
-    expected = release.installer_sha256.strip().lower()
-    if expected and actual != expected:
+    expected = _fetch_expected_checksum(release)
+    if actual != expected:
         raise SelfUpdateError(
             f"Downloaded installer failed SHA-256 verification. Expected {expected}, got {actual}."
         )
