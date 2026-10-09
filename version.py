@@ -1,2 +1,2 @@
-__version__ = "0.8.16"
-RELEASE_NAME = "Reliable Self Update"
+__version__ = "0.8.17"
+RELEASE_NAME = "Play Isolation Fix"
