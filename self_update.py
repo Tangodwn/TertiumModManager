@@ -216,11 +216,12 @@ def installed_executable() -> Path:
 
 
 def schedule_windows_package_update(package: Path, current_pid: int | None = None) -> Path:
-    """Apply a verified ZIP after Tertium exits, then restart the replaced app.
+    """Apply a verified ZIP after Tertium exits, then restart the app.
 
-    This deliberately does not execute a downloaded installer. That avoids the
-    temp-executable path that AV products commonly block and makes GitHub Releases
-    the launcher's normal update channel.
+    The handoff runs from the update-cache directory, never from the installation
+    directory. It updates files in place instead of renaming the live install
+    directory, which avoids the Windows access-denied failure seen when the helper
+    inherits the app folder as its working directory.
     """
     if os.name != "nt":
         raise SelfUpdateError("Automatic package updates are only supported on Windows.")
@@ -232,9 +233,11 @@ def schedule_windows_package_update(package: Path, current_pid: int | None = Non
     install_dir = current_exe.parent
     restart = install_dir / "TertiumModManager.exe"
     cache = update_cache_dir()
-    script = cache / f"apply-update-{int(time.time())}.ps1"
-    stage = cache / f"stage-{int(time.time())}-{pid}"
-    backup = cache / f"backup-{int(time.time())}-{pid}"
+    stamp = f"{int(time.time())}-{pid}"
+    script = cache / f"apply-update-{stamp}.ps1"
+    stage = cache / f"stage-{stamp}"
+    backup = cache / f"backup-{stamp}"
+    log = cache / "last-update.log"
 
     def q(value: Path) -> str:
         return str(value).replace("'", "''")
@@ -247,27 +250,39 @@ def schedule_windows_package_update(package: Path, current_pid: int | None = Non
         f"$restart = '{q(restart)}'\n"
         f"$stage = '{q(stage)}'\n"
         f"$backup = '{q(backup)}'\n"
-        "while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }\n"
-        "if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }\n"
-        "New-Item -ItemType Directory -Path $stage | Out-Null\n"
-        "Expand-Archive -LiteralPath $package -DestinationPath $stage -Force\n"
-        "$candidate = Join-Path $stage 'TertiumModManager.exe'\n"
-        "if (-not (Test-Path $candidate)) { throw 'Update package is missing TertiumModManager.exe.' }\n"
-        "if (Test-Path $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }\n"
-        "if (Test-Path $install) { Move-Item -LiteralPath $install -Destination $backup }\n"
+        f"$log = '{q(log)}'\n"
+        f"$cache = '{q(cache)}'\n"
+        "Set-Location -LiteralPath $cache\n"
+        "Set-Content -LiteralPath $log -Value ('Tertium update started ' + (Get-Date -Format o))\n"
         "try {\n"
-        "  Move-Item -LiteralPath $stage -Destination $install\n"
+        "  while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }\n"
+        "  Add-Content -LiteralPath $log -Value 'Main process exited.'\n"
+        "  if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }\n"
+        "  New-Item -ItemType Directory -Path $stage | Out-Null\n"
+        "  Expand-Archive -LiteralPath $package -DestinationPath $stage -Force\n"
+        "  $candidate = Join-Path $stage 'TertiumModManager.exe'\n"
+        "  if (-not (Test-Path $candidate)) { throw 'Update package is missing TertiumModManager.exe.' }\n"
+        "  Add-Content -LiteralPath $log -Value 'Package expanded and validated.'\n"
+        "  if (Test-Path $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }\n"
+        "  New-Item -ItemType Directory -Path $backup | Out-Null\n"
+        "  if (Test-Path $install) { Copy-Item -LiteralPath (Join-Path $install '*') -Destination $backup -Recurse -Force -ErrorAction Stop }\n"
+        "  if (-not (Test-Path $install)) { New-Item -ItemType Directory -Path $install | Out-Null }\n"
+        "  Copy-Item -Path (Join-Path $stage '*') -Destination $install -Recurse -Force -ErrorAction Stop\n"
         "  if (-not (Test-Path $restart)) { throw 'Updated executable is missing after replacement.' }\n"
-        "  Start-Process -FilePath $restart\n"
+        "  Add-Content -LiteralPath $log -Value 'Application files replaced.'\n"
+        "  Start-Process -FilePath $restart -WorkingDirectory $install\n"
+        "  Add-Content -LiteralPath $log -Value ('Restart requested ' + (Get-Date -Format o))\n"
+        "  Start-Sleep -Seconds 2\n"
+        "  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue\n"
         "} catch {\n"
-        "  if (Test-Path $install) { Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction SilentlyContinue }\n"
-        "  if (Test-Path $backup) { Move-Item -LiteralPath $backup -Destination $install -ErrorAction SilentlyContinue }\n"
-        "  throw\n"
-        "}\n"
-        "Start-Sleep -Seconds 2\n"
-        "if (Test-Path $backup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }\n"
-        "Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue\n"
-        "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n",
+        "  Add-Content -LiteralPath $log -Value ('FAILED: ' + $_.Exception.Message)\n"
+        "  if (Test-Path $backup) {\n"
+        "    try { Copy-Item -Path (Join-Path $backup '*') -Destination $install -Recurse -Force -ErrorAction Stop } catch { Add-Content -LiteralPath $log -Value ('ROLLBACK FAILED: ' + $_.Exception.Message) }\n"
+        "  }\n"
+        "  exit 1\n"
+        "}\n",
         encoding="utf-8",
     )
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -284,5 +299,6 @@ def schedule_windows_package_update(package: Path, current_pid: int | None = Non
         ],
         creationflags=creationflags,
         close_fds=True,
+        cwd=str(cache),
     )
     return script
