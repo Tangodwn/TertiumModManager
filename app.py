@@ -1960,6 +1960,12 @@ class TertiumApp:
         self._run_worker(lambda: self._repair_worker(False), "Repairing Darktide after update…")
 
     def repair_and_launch(self, skip_crash_guard: bool = False) -> None:
+        # PLAY MODDED must never resume or open a pending Nexus authorization queue.
+        # A user can return to Update All later; launching the game cancels guided browser work.
+        self.guided_update_active = False
+        self.guided_update_queue.clear()
+        self.guided_waiting_mod_id = None
+        self.guided_installing_mod_id = None
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
             return
@@ -2746,7 +2752,8 @@ class TertiumApp:
                     self.worker_active = False
                     self.status.set("Ready")
                     self.progress["value"] = 0
-                    if self.guided_installing_mod_id is not None:
+                    completed_guided_update = self.guided_installing_mod_id is not None
+                    if completed_guided_update:
                         installed_id = self.guided_installing_mod_id
                         if self.guided_update_queue and self.guided_update_queue[0][0].mod_id == installed_id:
                             finished, _successor = self.guided_update_queue.pop(0)
@@ -2754,7 +2761,10 @@ class TertiumApp:
                         self.guided_installing_mod_id = None
                     self.refresh()
                     self.root.after(50, self._process_pending_nxm)
-                    if self.guided_update_active and self.guided_installing_mod_id is None:
+                    # Only advance the browser authorization queue after a guided
+                    # NXM install completed. Unrelated workers such as PLAY MODDED
+                    # must never cause Nexus to open.
+                    if completed_guided_update and self.guided_update_active:
                         self.root.after(250, self._open_next_guided_update)
                 elif kind == "error":
                     self.worker_active = False
