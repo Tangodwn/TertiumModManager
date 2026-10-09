@@ -13,12 +13,12 @@ def test_play_modded_auto_recovery_contract():
     assert "maintain_load_order=True" in source
 
 
-def test_update_all_does_not_browser_fallback():
+def test_update_all_uses_guided_free_account_fallback():
     root = Path(__file__).resolve().parents[1]
     source = (root / "app.py").read_text(encoding="utf-8")
 
     worker = source[source.index("    def _update_all_worker"):source.index("    def save_profile")]
     assert 'webbrowser.open(' not in worker
-    assert 'self.queue.put(("guided_updates",' not in worker
-    assert "switching the remaining" not in worker
-    assert "will not open Nexus" in worker
+    assert 'self.queue.put(("guided_updates", remaining))' in worker
+    assert "guided free-account queue" in worker
+    assert "will not open Nexus" not in worker
