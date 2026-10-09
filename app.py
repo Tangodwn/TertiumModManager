@@ -138,6 +138,8 @@ class TertiumApp:
         self.guided_update_active = False
         self.guided_waiting_mod_id: int | None = None
         self.guided_installing_mod_id: int | None = None
+        self.pending_existing_link_local_id: int | None = None
+        self.pending_existing_link_nexus_mod_id: int | None = None
         self.status = StringVar(value="Ready")
         self.profile_var = StringVar(value="")
         self.filter_var = StringVar(value="")
@@ -1330,6 +1332,8 @@ class TertiumApp:
             )
             return
 
+        self.pending_existing_link_local_id = None
+        self.pending_existing_link_nexus_mod_id = None
         reference = simpledialog.askstring(
             "Link existing mod to Nexus",
             f"Local mod: {rec.name}\n"
@@ -1375,6 +1379,25 @@ class TertiumApp:
             },
         ))
 
+    def _prepare_existing_mod_link_from_nxm(self, local_mod_id: int, link: NxmLink) -> None:
+        local = self.store.get(local_mod_id)
+        if local is None or local.source != "local":
+            raise ModManagerError("The selected mod is no longer a local-only Tertium record.")
+        client = NexusClient(self.api_key)
+        mod_info = client.mod_info(link.mod_id, link.domain)
+        file_info = client.file_info(link.mod_id, link.file_id, link.domain)
+        self.queue.put((
+            "existing_link_ready",
+            {
+                "local_mod_id": local_mod_id,
+                "nexus_mod_id": link.mod_id,
+                "mod_info": dict(mod_info or {}),
+                "files": [dict(file_info or {})],
+                "exact": [],
+                "chosen": dict(file_info or {}),
+            },
+        ))
+
     @staticmethod
     def _recent_nexus_files(files: list[dict], limit: int = 12) -> list[dict]:
         def key(item: dict) -> tuple[int, int]:
@@ -1401,12 +1424,16 @@ class TertiumApp:
         nexus_mod_id = int(payload.get("nexus_mod_id") or 0)
         chosen: dict | None = None
 
-        if len(exact) == 1:
+        forced = payload.get("chosen")
+        if isinstance(forced, dict) and int(forced.get("file_id") or 0) > 0:
+            chosen = dict(forced)
+        elif len(exact) == 1:
             chosen = exact[0]
         else:
-            choices = exact if exact else self._recent_nexus_files(files)
+            self.pending_existing_link_local_id = local.mod_id
+            self.pending_existing_link_nexus_mod_id = nexus_mod_id
             reason = (
-                f"Tertium found {len(exact)} Nexus files declaring installed version {local.version!r}."
+                f"Tertium found {len(exact)} Nexus files declaring installed version {local.version!r}, so it cannot choose one safely."
                 if exact
                 else (
                     f"Tertium could not uniquely match installed version {local.version!r} to a Nexus file."
@@ -1414,32 +1441,14 @@ class TertiumApp:
                     else "Tertium could not read an installed version for this mod."
                 )
             )
-            preview = []
-            for item in choices:
-                preview.append(
-                    f"{item.get('file_id')}: {item.get('version') or item.get('mod_version') or 'version ?'}"
-                    f" — {item.get('name') or item.get('file_name') or 'unnamed file'}"
-                )
-            prompt = (
-                f"{reason}\n\n"
-                "Enter the Nexus FILE ID for the exact file currently installed. "
-                "This is required so Update All starts from the correct update lineage.\n\n"
-                + "\n".join(preview)
+            messagebox.showinfo(
+                "Choose the installed Nexus file",
+                reason
+                + "\n\nTertium will open the Nexus Files page. Find the exact file/version you currently have installed "
+                "and click Mod Manager Download. Tertium will capture that file ID and LINK ONLY — it will not download or reinstall the mod.",
             )
-            file_id = simpledialog.askinteger(
-                "Choose installed Nexus file",
-                prompt,
-                minvalue=1,
-            )
-            if file_id is None:
-                return
-            chosen = next((item for item in files if int(item.get("file_id") or 0) == int(file_id)), None)
-            if chosen is None:
-                messagebox.showerror(
-                    "Link existing mod",
-                    f"File ID {file_id} was not returned by Nexus for mod {nexus_mod_id}. Nothing was changed.",
-                )
-                return
+            self.open_nexus(nexus_mod_id)
+            return
 
         nexus_name = str(mod_info.get("name") or f"Nexus mod {nexus_mod_id}")
         nexus_version = str(chosen.get("version") or chosen.get("mod_version") or "")
@@ -1462,6 +1471,8 @@ class TertiumApp:
                 mod_info,
                 chosen,
             )
+            self.pending_existing_link_local_id = None
+            self.pending_existing_link_nexus_mod_id = None
             self.update_ids.discard(local.mod_id)
             self.log_line(
                 f"Linked existing local mod {local.name} to Nexus mod {linked.mod_id}, file {linked.file_id} "
@@ -1503,6 +1514,22 @@ class TertiumApp:
                 raise ModManagerError(f"This manager only accepts Darktide Nexus links ({GAME_DOMAIN}).")
         except Exception as exc:
             messagebox.showerror("NXM link", str(exc))
+            return
+
+        if self.pending_existing_link_local_id is not None:
+            expected_mod_id = int(self.pending_existing_link_nexus_mod_id or 0)
+            if expected_mod_id and link.mod_id != expected_mod_id:
+                messagebox.showerror(
+                    "Wrong Nexus mod",
+                    f"Tertium is waiting to link Nexus mod {expected_mod_id}, but the received link is for mod {link.mod_id}. "
+                    "Return to the opened Nexus page and click Mod Manager Download for the exact installed file.",
+                )
+                return
+            local_id = int(self.pending_existing_link_local_id)
+            self._run_worker(
+                lambda: self._prepare_existing_mod_link_from_nxm(local_id, link),
+                "Validating Nexus file for existing mod…",
+            )
             return
 
         if self.guided_update_active and self.guided_update_queue and self.guided_waiting_mod_id == link.mod_id:
