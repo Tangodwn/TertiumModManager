@@ -1957,8 +1957,10 @@ class TertiumApp:
         if not updates:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
-                body += f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
+                body += (
+                    f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
                     "Use Auto-Link Existing to retry catalog reconciliation; only unusual names should need the Advanced manual fallback."
+                )
             self.queue.put(("message", ("info", "Updates", body)))
             return
         priority = {DML_MOD_ID: 0, DMF_MOD_ID: 1, AML_MOD_ID: 2}
@@ -2029,8 +2031,10 @@ class TertiumApp:
         if not updates:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
-                body += f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
+                body += (
+                    f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
                     "Use Auto-Link Existing to retry catalog reconciliation; only unusual names should need the Advanced manual fallback."
+                )
             self.queue.put(("message", ("info", "Updates", body)))
             return
         priority = {DML_MOD_ID: 0, DMF_MOD_ID: 1, AML_MOD_ID: 2}
