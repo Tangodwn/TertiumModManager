@@ -3,6 +3,8 @@ name: Windows Release
 on:
   push:
     tags: ["v*"]
+    branches: ["main"]
+    paths: ["RELEASE_REQUEST"]
   workflow_dispatch:
 
 permissions:
@@ -11,6 +13,7 @@ permissions:
 jobs:
   build-release:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,16 +24,23 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Verify release tag matches VERSION
+      - name: Resolve and validate release version
+        id: release
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          if ("${{ github.ref_type }}" -eq "tag") {
-            $expected = "v$version"
-            if ("${{ github.ref_name }}" -ne $expected) {
-              throw "Release tag '${{ github.ref_name }}' does not match VERSION '$version'. Expected '$expected'."
+          $tag = "v$version"
+          if ("\${{ github.ref_type }}" -eq "tag") {
+            if ("\${{ github.ref_name }}" -ne $tag) {
+              throw "Release tag '\${{ github.ref_name }}' does not match VERSION '$version'. Expected '$tag'."
             }
+          } else {
+            if (-not (Test-Path "RELEASE_REQUEST")) { throw "RELEASE_REQUEST is missing." }
+            $requested = (Get-Content RELEASE_REQUEST -Raw).Trim()
+            if ($requested -ne $version) { throw "RELEASE_REQUEST '$requested' does not match VERSION '$version'." }
           }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Install test/build dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
@@ -55,27 +65,39 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TertiumModManager-Windows-${{ github.ref_name }}
+          name: TertiumModManager-Windows-\${{ steps.release.outputs.tag }}
           path: |
             release/TertiumModManager-Setup-x64.exe
             release/TertiumModManager-Setup-x64.exe.sha256
           if-no-files-found: error
 
-      - name: Publish GitHub release assets
-        if: github.ref_type == 'tag'
+      - name: Create release tag when requested from main
+        if: github.ref_type != 'tag'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: \${{ github.token }}
+          RELEASE_TAG: \${{ steps.release.outputs.tag }}
         run: |
-          $tag = "${{ github.ref_name }}"
-          $notes = "RELEASE_NOTES_$((Get-Content VERSION -Raw).Trim()).md"
-          gh release view $tag *> $null
+          gh api "repos/\${{ github.repository }}/git/ref/tags/$env:RELEASE_TAG" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh api --method POST "repos/\${{ github.repository }}/git/refs" -f ref="refs/tags/$env:RELEASE_TAG" -f sha="\${{ github.sha }}"
+          }
+
+      - name: Publish GitHub release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: \${{ github.token }}
+          RELEASE_TAG: \${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: \${{ steps.release.outputs.version }}
+        run: |
+          $notes = "RELEASE_NOTES_$env:RELEASE_VERSION.md"
+          gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --clobber
+            gh release upload $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --clobber
           } else {
             if (Test-Path $notes) {
-              gh release create $tag "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --title "Tertium Mod Manager $tag" --notes-file $notes
+              gh release create $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --title "Tertium Mod Manager $env:RELEASE_TAG" --notes-file $notes
             } else {
-              gh release create $tag "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --title "Tertium Mod Manager $tag" --generate-notes
+              gh release create $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --title "Tertium Mod Manager $env:RELEASE_TAG" --generate-notes
             }
           }
