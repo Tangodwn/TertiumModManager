@@ -445,7 +445,7 @@ class TertiumApp:
         ttk.Label(readiness, textvariable=self.dashboard_status, style="Hero.TLabel").pack(anchor="w", pady=(4, 8))
         ttk.Label(
             readiness,
-            text="PLAY MODDED verifies the loader, repairs Darktide after game updates when needed, restores AML when tracked, then starts the game.",
+            text="PLAY MODDED verifies/repairs the loader, synchronizes Tertium's enabled mods into the Darktide load order, then starts the game.",
             style="Muted.Panel.TLabel",
             wraplength=650,
             justify="left",
@@ -2840,8 +2840,8 @@ class TertiumApp:
                     self.refresh()
                     if launch_after:
                         try:
-                            maintain = self.store.get(AML_MOD_ID) is None
-                            changed = enforce_active_quarantines(self.game_dir, self.store, self.compatibility, maintain_load_order=maintain)
+                            # Tertium owns mod_load_order.txt even when AML is installed.
+                            changed = enforce_active_quarantines(self.game_dir, self.store, self.compatibility, maintain_load_order=True)
                             if changed:
                                 self.log_line("Crash Guard kept quarantined mod(s) disabled: " + ", ".join(changed))
                             self.config["last_modded_launch_at"] = time.time()
