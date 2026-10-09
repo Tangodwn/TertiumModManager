@@ -1,2 +1,2 @@
-__version__ = "0.8.11"
-RELEASE_NAME = "Browser-Free Updates"
+__version__ = "0.8.12"
+RELEASE_NAME = "One-Button Recovery"
