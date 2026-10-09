@@ -1210,3 +1210,16 @@ def test_auto_nexus_reconciliation_source_contract():
     # Manual linking remains a fallback, not the normal simple-mode workflow.
     assert "self.manual_link_button.pack_forget()" in source
     assert "self.manual_link_button.pack(side=LEFT" in source
+
+
+def test_explicit_quarantine_clear_preserves_crash_evidence():
+    from core import CompatibilityStore
+    with tempfile.TemporaryDirectory() as td:
+        store = CompatibilityStore(Path(td))
+        store.record_crash("NumericUI", "100", "1.0", "sig", "boom", "console.log")
+        store.set_quarantined("NumericUI", "100", "1.0", True, "crash")
+        assert store.get("NumericUI", "100", "1.0")["quarantined"] is True
+        assert store.clear_quarantine("NumericUI") == 1
+        row = store.get("NumericUI", "100", "1.0")
+        assert row["quarantined"] is False
+        assert row["evidence_count"] == 1
