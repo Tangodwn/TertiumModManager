@@ -17,7 +17,8 @@ def test_update_all_does_not_browser_fallback():
     root = Path(__file__).resolve().parents[1]
     source = (root / "app.py").read_text(encoding="utf-8")
 
-    update_all = source[source.index("    def update_all"):source.index("    def save_profile")]
-    assert 'webbrowser.open(' not in update_all
-    assert "switching the remaining" not in update_all
-    assert "will not open Nexus" in update_all
+    worker = source[source.index("    def _update_all_worker"):source.index("    def save_profile")]
+    assert 'webbrowser.open(' not in worker
+    assert 'self.queue.put(("guided_updates",' not in worker
+    assert "switching the remaining" not in worker
+    assert "will not open Nexus" in worker
