@@ -46,6 +46,7 @@ from core import (
     has_dml,
     install_archive,
     is_darktide_running,
+    link_local_record_to_nexus,
     load_json,
     mods_dir,
     open_game_launcher,
@@ -70,7 +71,16 @@ from core import (
     verify_cached_archive,
     write_mod_load_order,
 )
-from nexus import NexusClient, NxmLink, browser_authorization_required, choose_mirror, download_file, parse_nxm_url
+from nexus import (
+    NexusClient,
+    NxmLink,
+    browser_authorization_required,
+    choose_mirror,
+    download_file,
+    matching_files_for_version,
+    parse_nexus_mod_reference,
+    parse_nxm_url,
+)
 from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_official_news
 from winutil import protect_secret, register_nxm_protocol, unprotect_secret
 from version import __version__, RELEASE_NAME
@@ -128,6 +138,8 @@ class TertiumApp:
         self.guided_update_active = False
         self.guided_waiting_mod_id: int | None = None
         self.guided_installing_mod_id: int | None = None
+        self.pending_existing_link_local_id: int | None = None
+        self.pending_existing_link_nexus_mod_id: int | None = None
         self.status = StringVar(value="Ready")
         self.profile_var = StringVar(value="")
         self.filter_var = StringVar(value="")
@@ -491,6 +503,8 @@ class TertiumApp:
         self.mod_toggle_button.pack(side=LEFT, padx=(0, 6))
         self.mod_nexus_button = ttk.Button(actions, text="Open on Nexus", command=self.open_selected_nexus)
         self.mod_nexus_button.pack(side=LEFT, padx=(0, 6))
+        self.mod_link_button = ttk.Button(actions, text="Link Existing to Nexus", command=self.link_selected_existing_mod)
+        self.mod_link_button.pack(side=LEFT, padx=(0, 6))
         ttk.Button(actions, text="Discover Mods", command=self.open_nexus_catalog).pack(side=LEFT, padx=(0, 6))
         self.mod_rollback_button = ttk.Button(actions, text="Rollback Update", command=self.rollback_selected_update)
         self.mod_rollback_button.pack(side=LEFT, padx=(0, 6))
@@ -1076,15 +1090,20 @@ class TertiumApp:
                     (rec.version if rec else item["version"]) or "",
                     rec.mod_id if rec and rec.source == "nexus" else "",
                     item["folder"],
-                    "Available" if rec and rec.mod_id in self.update_ids else "",
+                    (
+                        "Available"
+                        if rec and rec.mod_id in self.update_ids
+                        else ("Link Nexus" if rec and rec.source == "local" and rec.mod_id not in CORE_NAMES else "")
+                    ),
                 ),
             )
         total = len(scanned)
         enabled_count = sum(1 for item in scanned if item["enabled"])
         disabled_count = total - enabled_count
-        self.mod_count_text.set(f"{visible_count}/{total} mods" if query else f"{total} mods")
         nexus_linked = sum(1 for r in tracked.values() if r.source == "nexus" and r.mod_id not in CORE_NAMES)
         local_only = sum(1 for r in tracked.values() if r.source == "local" and r.mod_id not in CORE_NAMES)
+        count_prefix = f"{visible_count}/{total} mods" if query else f"{total} mods"
+        self.mod_count_text.set(f"{count_prefix} · {nexus_linked} linked · {local_only} local")
         self.dashboard_mods.set(f"Mods: {enabled_count} on / {disabled_count} off")
         if self.update_ids:
             self.dashboard_updates.set(f"Updates: {len(self.update_ids)} available")
@@ -1274,6 +1293,205 @@ class TertiumApp:
             return
         self.open_nexus(rec.mod_id)
 
+    def link_selected_existing_mod(self) -> None:
+        if not self.game_dir:
+            messagebox.showerror("Setup", "Choose your Darktide game folder first.")
+            return
+        if not self.api_key:
+            messagebox.showerror("Nexus", "Set your Nexus API key first.")
+            return
+        if is_darktide_running():
+            messagebox.showerror(
+                "Darktide is running",
+                "Close Darktide before changing Tertium's mod tracking records.",
+            )
+            return
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo(
+                "Link existing mod",
+                "Select one of the local-only mods marked 'Link Nexus', then click Link Existing to Nexus.",
+            )
+            return
+        values = self.tree.item(sel[0], "values")
+        folder = str(values[4])
+        rec = self._record_for_folder(folder)
+        if not rec:
+            messagebox.showerror("Link existing mod", "Tertium could not find the selected mod in its registry.")
+            return
+        if rec.source == "nexus":
+            messagebox.showinfo(
+                "Link existing mod",
+                f"{rec.name} is already linked to Nexus mod {rec.mod_id}.",
+            )
+            return
+        if rec.mod_id in CORE_NAMES:
+            messagebox.showinfo(
+                "Link existing mod",
+                "Core framework components use their dedicated Nexus records and are not linked here.",
+            )
+            return
+
+        self.pending_existing_link_local_id = None
+        self.pending_existing_link_nexus_mod_id = None
+        reference = simpledialog.askstring(
+            "Link existing mod to Nexus",
+            f"Local mod: {rec.name}\n"
+            f"Installed version: {rec.version or 'unknown'}\n\n"
+            "Paste the Nexus mod page URL or numeric mod ID.\n\n"
+            "Tertium will only change its tracking record; it will not download, reinstall, enable, disable, or move the mod.",
+        )
+        if reference is None:
+            return
+        try:
+            nexus_mod_id = parse_nexus_mod_reference(reference)
+        except Exception as exc:
+            messagebox.showerror("Link existing mod", str(exc))
+            return
+        self._run_worker(
+            lambda: self._prepare_existing_mod_link(rec.mod_id, nexus_mod_id),
+            f"Checking Nexus match for {rec.name}…",
+        )
+
+    def _prepare_existing_mod_link(self, local_mod_id: int, nexus_mod_id: int) -> None:
+        local = self.store.get(local_mod_id)
+        if local is None or local.source != "local":
+            raise ModManagerError("The selected mod is no longer a local-only Tertium record.")
+        client = NexusClient(self.api_key)
+        mod_info = client.mod_info(nexus_mod_id)
+        files_payload = client.mod_files(nexus_mod_id)
+        files = [
+            dict(item)
+            for item in files_payload.get("files", [])
+            if isinstance(item, dict) and int(item.get("file_id") or 0) > 0
+        ]
+        if not files:
+            raise ModManagerError("Nexus returned no usable files for that mod page.")
+        exact = matching_files_for_version(files_payload, local.version)
+        self.queue.put((
+            "existing_link_ready",
+            {
+                "local_mod_id": local_mod_id,
+                "nexus_mod_id": nexus_mod_id,
+                "mod_info": dict(mod_info or {}),
+                "files": files,
+                "exact": exact,
+            },
+        ))
+
+    def _prepare_existing_mod_link_from_nxm(self, local_mod_id: int, link: NxmLink) -> None:
+        local = self.store.get(local_mod_id)
+        if local is None or local.source != "local":
+            raise ModManagerError("The selected mod is no longer a local-only Tertium record.")
+        client = NexusClient(self.api_key)
+        mod_info = client.mod_info(link.mod_id, link.domain)
+        file_info = client.file_info(link.mod_id, link.file_id, link.domain)
+        self.queue.put((
+            "existing_link_ready",
+            {
+                "local_mod_id": local_mod_id,
+                "nexus_mod_id": link.mod_id,
+                "mod_info": dict(mod_info or {}),
+                "files": [dict(file_info or {})],
+                "exact": [],
+                "chosen": dict(file_info or {}),
+            },
+        ))
+
+    @staticmethod
+    def _recent_nexus_files(files: list[dict], limit: int = 12) -> list[dict]:
+        def key(item: dict) -> tuple[int, int]:
+            try:
+                uploaded = int(item.get("uploaded_timestamp") or 0)
+            except (TypeError, ValueError):
+                uploaded = 0
+            try:
+                file_id = int(item.get("file_id") or 0)
+            except (TypeError, ValueError):
+                file_id = 0
+            return (uploaded, file_id)
+
+        return sorted(files, key=key, reverse=True)[:max(1, limit)]
+
+    def _finish_existing_mod_link(self, payload: dict) -> None:
+        local = self.store.get(int(payload.get("local_mod_id") or 0))
+        if local is None or local.source != "local":
+            messagebox.showerror("Link existing mod", "The selected local mod record changed before linking completed.")
+            return
+        mod_info = dict(payload.get("mod_info") or {})
+        files = [dict(item) for item in (payload.get("files") or []) if isinstance(item, dict)]
+        exact = [dict(item) for item in (payload.get("exact") or []) if isinstance(item, dict)]
+        nexus_mod_id = int(payload.get("nexus_mod_id") or 0)
+        chosen: dict | None = None
+
+        forced = payload.get("chosen")
+        if isinstance(forced, dict) and int(forced.get("file_id") or 0) > 0:
+            chosen = dict(forced)
+        elif len(exact) == 1:
+            chosen = exact[0]
+        else:
+            self.pending_existing_link_local_id = local.mod_id
+            self.pending_existing_link_nexus_mod_id = nexus_mod_id
+            reason = (
+                f"Tertium found {len(exact)} Nexus files declaring installed version {local.version!r}, so it cannot choose one safely."
+                if exact
+                else (
+                    f"Tertium could not uniquely match installed version {local.version!r} to a Nexus file."
+                    if local.version
+                    else "Tertium could not read an installed version for this mod."
+                )
+            )
+            messagebox.showinfo(
+                "Choose the installed Nexus file",
+                reason
+                + "\n\nTertium will open the Nexus Files page. Find the exact file/version you currently have installed "
+                "and click Mod Manager Download. Tertium will capture that file ID and LINK ONLY — it will not download or reinstall the mod.",
+            )
+            self.open_nexus(nexus_mod_id)
+            return
+
+        nexus_name = str(mod_info.get("name") or f"Nexus mod {nexus_mod_id}")
+        nexus_version = str(chosen.get("version") or chosen.get("mod_version") or "")
+        file_id = int(chosen.get("file_id") or 0)
+        if not messagebox.askyesno(
+            "Confirm Nexus link",
+            f"Link local mod:\n  {local.name} ({local.version or 'version unknown'})\n\n"
+            f"to Nexus:\n  {nexus_name}\n"
+            f"  Mod ID {nexus_mod_id} · File ID {file_id}"
+            + (f" · Version {nexus_version}" if nexus_version else "")
+            + "\n\nNo mod files will be downloaded or changed.",
+        ):
+            return
+
+        try:
+            linked = link_local_record_to_nexus(
+                self.store,
+                local.mod_id,
+                nexus_mod_id,
+                mod_info,
+                chosen,
+            )
+            self.pending_existing_link_local_id = None
+            self.pending_existing_link_nexus_mod_id = None
+            self.update_ids.discard(local.mod_id)
+            self.log_line(
+                f"Linked existing local mod {local.name} to Nexus mod {linked.mod_id}, file {linked.file_id} "
+                "without reinstalling it."
+            )
+            self.refresh()
+            remaining = sum(
+                1
+                for record in self.store.all()
+                if record.source == "local" and record.mod_id not in CORE_NAMES
+            )
+            messagebox.showinfo(
+                "Nexus link complete",
+                f"{linked.name} is now Nexus-linked and eligible for Update All.\n\n"
+                f"{remaining} local-only mod(s) remain.",
+            )
+        except Exception as exc:
+            messagebox.showerror("Link existing mod", str(exc))
+
     def prompt_nxm(self) -> None:
         value = simpledialog.askstring("Install Nexus Mod", "Paste an nxm://warhammer40kdarktide/... link:")
         if value:
@@ -1296,6 +1514,22 @@ class TertiumApp:
                 raise ModManagerError(f"This manager only accepts Darktide Nexus links ({GAME_DOMAIN}).")
         except Exception as exc:
             messagebox.showerror("NXM link", str(exc))
+            return
+
+        if self.pending_existing_link_local_id is not None:
+            expected_mod_id = int(self.pending_existing_link_nexus_mod_id or 0)
+            if expected_mod_id and link.mod_id != expected_mod_id:
+                messagebox.showerror(
+                    "Wrong Nexus mod",
+                    f"Tertium is waiting to link Nexus mod {expected_mod_id}, but the received link is for mod {link.mod_id}. "
+                    "Return to the opened Nexus page and click Mod Manager Download for the exact installed file.",
+                )
+                return
+            local_id = int(self.pending_existing_link_local_id)
+            self._run_worker(
+                lambda: self._prepare_existing_mod_link_from_nxm(local_id, link),
+                "Validating Nexus file for existing mod…",
+            )
             return
 
         if self.guided_update_active and self.guided_update_queue and self.guided_waiting_mod_id == link.mod_id:
@@ -2292,6 +2526,8 @@ class TertiumApp:
                         self.handle_nxm(str(payload))
                 elif kind == "guided_updates":
                     self._begin_guided_updates(list(payload))
+                elif kind == "existing_link_ready":
+                    self._finish_existing_mod_link(dict(payload or {}))
                 elif kind == "repair_complete":
                     report, launch_after = payload
                     build = report.get("build_id") or read_steam_build_id(self.game_dir) or "unknown"

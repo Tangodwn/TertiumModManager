@@ -1067,3 +1067,69 @@ def test_guardian_recovery_and_nexus_fallback_source_contract():
     assert "browser_authorization_required" in worker
     assert 'self.queue.put(("guided_updates", remaining))' in worker
     assert "Run Update All again" not in worker
+
+
+def test_link_local_record_to_nexus_preserves_install_state_and_removes_placeholder():
+    from core import ModRecord, RegistryStore, link_local_record_to_nexus
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        store = RegistryStore(root)
+        local = ModRecord(
+            mod_id=-123,
+            file_id=0,
+            name="NumericUI",
+            version="26.02.08-1",
+            folders=["_NumericUI"],
+            enabled=False,
+            installed_at=123.0,
+            source="local",
+        )
+        store.upsert(local)
+        linked = link_local_record_to_nexus(
+            store,
+            -123,
+            42,
+            {"name": "Numeric UI"},
+            {"file_id": 99, "version": "26.02.08-1", "file_name": "NumericUI.zip", "category_id": 3},
+        )
+        assert linked.mod_id == 42
+        assert linked.file_id == 99
+        assert linked.folders == ["_NumericUI"]
+        assert linked.enabled is False
+        assert linked.installed_at == 123.0
+        assert linked.source == "nexus"
+        assert store.get(-123) is None
+        assert store.get(42).name == "Numeric UI"
+        backups = list(store.backup_dir.glob("registry-link-*.json"))
+        assert len(backups) == 1
+
+
+def test_link_local_record_to_nexus_refuses_duplicate_nexus_target():
+    from core import ModManagerError, ModRecord, RegistryStore, link_local_record_to_nexus
+    with tempfile.TemporaryDirectory() as td:
+        store = RegistryStore(Path(td))
+        store.upsert(ModRecord(mod_id=-1, file_id=0, name="Local", folders=["Local"], source="local"))
+        store.upsert(ModRecord(mod_id=77, file_id=10, name="Already Linked", folders=["Other"], source="nexus"))
+        try:
+            link_local_record_to_nexus(
+                store,
+                -1,
+                77,
+                {"name": "Wrong Target"},
+                {"file_id": 11, "version": "1.0"},
+            )
+        except ModManagerError:
+            pass
+        else:
+            raise AssertionError("duplicate Nexus target should be rejected")
+
+
+def test_existing_mod_linker_ui_contract():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "Link Existing to Nexus" in source
+    assert "def link_selected_existing_mod" in source
+    assert "def _prepare_existing_mod_link_from_nxm" in source
+    assert "pending_existing_link_local_id" in source
+    assert "LINK ONLY" in source
+    assert "link_local_record_to_nexus" in source

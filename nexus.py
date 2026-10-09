@@ -50,6 +50,69 @@ def parse_nxm_url(url: str) -> NxmLink:
     )
 
 
+def parse_nexus_mod_reference(value: str, domain: str = GAME_DOMAIN) -> int:
+    """Parse a Nexus mod page URL or bare numeric mod ID without guessing."""
+    text = str(value or "").strip()
+    if not text:
+        raise ModManagerError("Enter a Nexus mod page URL or numeric mod ID.")
+    if text.isdigit():
+        mod_id = int(text)
+        if mod_id <= 0:
+            raise ModManagerError("Nexus mod ID must be greater than zero.")
+        return mod_id
+
+    if text.lower().startswith("nxm://"):
+        link = parse_nxm_url(text)
+        if link.domain.lower() != domain.lower():
+            raise ModManagerError(f"Expected a {domain} Nexus link.")
+        return link.mod_id
+
+    parsed = urllib.parse.urlparse(text if "://" in text else "https://" + text)
+    host = (parsed.hostname or "").lower()
+    if host not in {"nexusmods.com", "www.nexusmods.com"}:
+        raise ModManagerError("That is not a Nexus Mods URL.")
+
+    parts = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+    lower = [part.lower() for part in parts]
+    if "mods" not in lower:
+        raise ModManagerError("The Nexus URL does not contain a mod ID.")
+    idx = lower.index("mods")
+    if idx + 1 >= len(parts) or not parts[idx + 1].isdigit():
+        raise ModManagerError("The Nexus URL does not contain a numeric mod ID.")
+    if idx > 0:
+        game_part = lower[idx - 1]
+        if game_part not in {domain.lower(), "games"} and domain.lower() not in lower:
+            raise ModManagerError(f"Expected a Nexus page for {domain}.")
+    return int(parts[idx + 1])
+
+
+def normalize_version(value: Any) -> str:
+    """Conservatively normalize version text for exact installed-file matching."""
+    text = str(value or "").strip().casefold()
+    if text.startswith("v") and len(text) > 1 and text[1].isdigit():
+        text = text[1:]
+    return re.sub(r"\s+", "", text)
+
+
+def matching_files_for_version(payload: dict[str, Any], installed_version: str) -> list[dict[str, Any]]:
+    """Return Nexus files whose declared version exactly matches the installed mod version."""
+    wanted = normalize_version(installed_version)
+    if not wanted or wanted in {"local", "unknown"}:
+        return []
+    matches: list[dict[str, Any]] = []
+    for item in payload.get("files", []) if isinstance(payload, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        versions = {
+            normalize_version(item.get("version")),
+            normalize_version(item.get("mod_version")),
+        }
+        versions.discard("")
+        if wanted in versions:
+            matches.append(dict(item))
+    return matches
+
+
 class NexusClient:
     def __init__(self, api_key: str):
         self.api_key = api_key.strip()
