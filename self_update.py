@@ -265,7 +265,7 @@ def schedule_windows_package_update(package: Path, current_pid: int | None = Non
         "  Add-Content -LiteralPath $log -Value 'Package expanded and validated.'\n"
         "  if (Test-Path $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }\n"
         "  New-Item -ItemType Directory -Path $backup | Out-Null\n"
-        "  if (Test-Path $install) { Copy-Item -LiteralPath (Join-Path $install '*') -Destination $backup -Recurse -Force -ErrorAction Stop }\n"
+        "  if (Test-Path $install) { Copy-Item -Path (Join-Path $install '*') -Destination $backup -Recurse -Force -ErrorAction Stop }\n"
         "  if (-not (Test-Path $install)) { New-Item -ItemType Directory -Path $install | Out-Null }\n"
         "  Copy-Item -Path (Join-Path $stage '*') -Destination $install -Recurse -Force -ErrorAction Stop\n"
         "  if (-not (Test-Path $restart)) { throw 'Updated executable is missing after replacement.' }\n"
