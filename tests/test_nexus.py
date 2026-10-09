@@ -90,3 +90,55 @@ def test_matching_files_for_version_is_conservative_and_ignores_leading_v():
     matches = nexus.matching_files_for_version(payload, "1.2.3")
     assert [x["file_id"] for x in matches] == [1]
     assert nexus.matching_files_for_version(payload, "local") == []
+
+
+def test_unique_catalog_match_handles_folder_style_names():
+    catalog = [
+        {"mod_id": 101, "name": "Animation Events"},
+        {"mod_id": 102, "name": "True Level"},
+        {"mod_id": 103, "name": "For the Emperor!"},
+    ]
+    assert nexus.unique_catalog_match(["animation_events"], catalog)["mod_id"] == 101
+    assert nexus.unique_catalog_match(["true_level"], catalog)["mod_id"] == 102
+    assert nexus.unique_catalog_match(["ForTheEmperor"], catalog)["mod_id"] == 103
+
+
+def test_unique_catalog_match_refuses_ambiguous_normalized_names():
+    catalog = [
+        {"mod_id": 1, "name": "Example Mod"},
+        {"mod_id": 2, "name": "Example-Mod"},
+    ]
+    assert nexus.unique_catalog_match(["example_mod"], catalog) is None
+
+
+def test_latest_main_file_prefers_primary_then_newest_main():
+    primary_payload = {
+        "files": [
+            {"file_id": 1, "name": "old", "category_name": "MAIN", "uploaded_timestamp": 100},
+            {"file_id": 2, "name": "primary", "category_name": "OPTIONAL", "is_primary": True, "uploaded_timestamp": 50},
+            {"file_id": 3, "name": "optional", "category_name": "OPTIONAL", "uploaded_timestamp": 200},
+        ]
+    }
+    assert nexus.latest_main_file(primary_payload)["file_id"] == 2
+
+    main_payload = {
+        "files": [
+            {"file_id": 10, "category_name": "MAIN", "uploaded_timestamp": 100},
+            {"file_id": 11, "category_name": "MAIN", "uploaded_timestamp": 200},
+            {"file_id": 12, "category_name": "OPTIONAL", "uploaded_timestamp": 300},
+        ]
+    }
+    assert nexus.latest_main_file(main_payload)["file_id"] == 11
+
+
+def test_latest_successor_unknown_baseline_returns_latest_main(monkeypatch):
+    client = nexus.NexusClient("test-key")
+    payload = {
+        "files": [
+            {"file_id": 21, "category_name": "MAIN", "uploaded_timestamp": 100},
+            {"file_id": 22, "category_name": "MAIN", "uploaded_timestamp": 200},
+        ],
+        "file_updates": [],
+    }
+    monkeypatch.setattr(client, "mod_files", lambda *_a, **_k: payload)
+    assert client.latest_successor(123, 0)["file_id"] == 22
