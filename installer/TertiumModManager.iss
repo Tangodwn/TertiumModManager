@@ -27,7 +27,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "nxmhandler"; Description: "Use Tertium for Nexus Mod Manager Download links (nxm://)"; GroupDescription: "Nexus integration:"; Flags: checkedonce
 
 [Files]
