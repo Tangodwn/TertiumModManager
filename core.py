@@ -314,6 +314,67 @@ class CompatibilityStore:
         return changed
 
 
+    def crash_signatures(self, logical_name: str, build_id: str | None = None, mod_version: str | None = None) -> set[str]:
+        """Return recorded crash signatures for a mod, optionally scoped to build/version."""
+        wanted = logical_name.strip().lower()
+        signatures: set[str] = set()
+        for row in self.all():
+            if str(row.get("logical_name") or "").strip().lower() != wanted:
+                continue
+            if build_id is not None and str(row.get("build_id") or "") != str(build_id or ""):
+                continue
+            if mod_version is not None and str(row.get("mod_version") or "") != str(mod_version or ""):
+                continue
+            signatures.update(str(x) for x in (row.get("signatures") or []) if str(x))
+        return signatures
+
+    def learned_candidates_for_error(
+        self,
+        error: str,
+        build_id: str,
+        installed_versions: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        """Map a repeated script error back to mods previously associated with it.
+
+        This is only used when the current stack contains no direct mod path.
+        Matching is restricted to the current Darktide build and currently
+        installed mod version so stale history does not poison future sessions.
+        """
+        normalized_error = " ".join(str(error or "").split()).casefold()
+        if not normalized_error:
+            return []
+        matches: list[dict[str, Any]] = []
+        for row in self.all():
+            logical = str(row.get("logical_name") or "").strip()
+            if not logical:
+                continue
+            if str(row.get("build_id") or "") != str(build_id or ""):
+                continue
+            current_version = installed_versions.get(logical.casefold())
+            if current_version is None:
+                continue
+            if str(row.get("mod_version") or "") != str(current_version or ""):
+                continue
+            prior_error = " ".join(str(row.get("last_error") or "").split()).casefold()
+            if prior_error != normalized_error:
+                continue
+            if int(row.get("evidence_count") or 0) <= 0:
+                continue
+            matches.append({
+                "logical_name": logical,
+                "score": 95,
+                "confidence": "high",
+                "source": "learned-crash-signature",
+            })
+        # Unique learned matches are strong evidence. Multiple matches are kept
+        # conservative so Tertium does not auto-disable the wrong mod.
+        if len(matches) > 1:
+            for item in matches:
+                item["score"] = 55
+                item["confidence"] = "medium"
+        return matches
+
+
 class ProfileStore:
     def __init__(self, root: Path | None = None):
         self.root = root or app_data_dir()
