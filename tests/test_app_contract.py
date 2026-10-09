@@ -37,3 +37,17 @@ def test_play_modded_never_advances_guided_nexus_queue():
     drain = source[source.index('                elif kind == "done":'):source.index('                elif kind == "error":')]
     assert "completed_guided_update" in drain
     assert "if completed_guided_update and self.guided_update_active" in drain
+
+
+def test_user_can_override_or_remove_crash_quarantine():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+
+    toggle = source[source.index("    def toggle_selected"):source.index("    def rollback_selected_update")]
+    assert "self.compatibility.clear_quarantine(logical_name)" in toggle
+    assert "write_mod_load_order(self.game_dir, enabled)" in toggle
+
+    remove = source[source.index("    def remove_selected"):source.index("    def restore_removed_mod")]
+    assert "self.compatibility.clear_quarantine(logical_name)" in remove
+    assert "write_mod_load_order(self.game_dir, enabled)" in remove
+    assert "self._refresh_crash_guard()" in remove
