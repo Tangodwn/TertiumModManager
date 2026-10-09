@@ -97,6 +97,8 @@ def test_package_updater_does_not_execute_downloaded_installer():
     source = Path(__file__).resolve().parents[1].joinpath("self_update.py").read_text(encoding="utf-8")
     fn = source[source.index("def schedule_windows_package_update"):]
     assert "Expand-Archive" in fn
-    assert "Move-Item" in fn
+    assert "Copy-Item" in fn
+    assert "cwd=str(cache)" in fn
+    assert "last-update.log" in fn
     assert "Start-Process -FilePath $restart" in fn
     assert "Start-Process -FilePath $installer" not in fn
