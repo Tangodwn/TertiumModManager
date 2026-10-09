@@ -1093,7 +1093,8 @@ def test_guardian_recovery_and_nexus_fallback_source_contract():
 
     worker = source[source.index("def _update_all_worker"):source.index("def save_profile")]
     assert "browser_authorization_required" in worker
-    assert 'self.queue.put(("guided_updates", remaining))' in worker
+    assert 'self.queue.put(("guided_updates",' not in worker
+    assert "will not open Nexus" in worker
     assert "Run Update All again" not in worker
 
 
