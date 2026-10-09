@@ -1947,8 +1947,7 @@ class TertiumApp:
             lines.append(f"{rec.name}: {rec.version or rec.file_id} → {succ.get('version') or succ.get('file_id')}")
         self.queue.put(("updates", updates))
         note = (
-            "Update All will try automatic download first and fall back to Nexus browser authorization "
-            "only for files that require it."
+            "Update All uses automatic in-app downloads only. It will not open Nexus pages or require manual downloads."
         )
         if local_only:
             note += f"\n\n{len(local_only)} local-only mod(s) are not Nexus-linked yet."
