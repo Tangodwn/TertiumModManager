@@ -152,6 +152,11 @@ class TertiumApp:
         self.pending_existing_link_local_id: int | None = None
         self.pending_existing_link_nexus_mod_id: int | None = None
         self.auto_nexus_reconcile_active = False
+        # PLAY MODDED is a one-button operation. If the launched mod set crashes,
+        # Tertium gets one automatic recovery attempt: quarantine a strong suspect,
+        # or fall back to the core-only safe set when no specific culprit is known.
+        self.auto_recovery_armed = False
+        self.auto_recovery_attempted = False
         self.status = StringVar(value="Ready")
         self.profile_var = StringVar(value="")
         self.filter_var = StringVar(value="")
@@ -939,14 +944,13 @@ class TertiumApp:
         self._save_config()
 
     def _quarantine_candidate(self, logical_name: str, finding: dict | None) -> None:
-        maintain = self.store.get(AML_MOD_ID) is None
         result = quarantine_crash_candidate(
             self.game_dir,
             self.store,
             self.compatibility,
             logical_name,
             finding=finding,
-            maintain_load_order=maintain,
+            maintain_load_order=True,
         )
         self._remember_handled_crash(finding)
         self.log_line(
@@ -1040,10 +1044,40 @@ class TertiumApp:
             if self._last_running_state and not running:
                 self.log_line("Darktide session ended; checking the newest session log.")
                 self.refresh()
-                self._refresh_crash_guard()
+                finding = self._refresh_crash_guard()
+                if finding and self.auto_recovery_armed and not self.auto_recovery_attempted:
+                    self.auto_recovery_attempted = True
+                    self.auto_recovery_armed = False
+                    candidate = self._primary_crash_candidate(finding)
+                    try:
+                        if candidate and str(candidate.get("confidence") or "").lower() == "high":
+                            name = str(candidate.get("logical_name") or "")
+                            if name:
+                                self._quarantine_candidate(name, finding)
+                                self.log_line(
+                                    f"Automatic Crash Recovery: {name} was implicated; disabled it and relaunching once."
+                                )
+                        else:
+                            result = enter_troubleshooting_safe_mode(
+                                self.game_dir,
+                                self.store,
+                                maintain_load_order=True,
+                            )
+                            self._remember_handled_crash(finding)
+                            self.log_line(
+                                "Automatic Crash Recovery: no reliable single culprit; "
+                                f"disabled {len(result.get('changed') or [])} normal mod(s) and relaunching the core-only safe set once."
+                            )
+                            self.refresh()
+                        self.root.after(750, lambda: self.repair_and_launch(skip_crash_guard=True))
+                    except Exception as exc:
+                        self.log_line(f"Automatic Crash Recovery failed: {exc}")
+                        messagebox.showerror("Automatic Crash Recovery", str(exc))
+                else:
+                    self.auto_recovery_armed = False
             self._last_running_state = running
-        except Exception:
-            pass
+        except Exception as exc:
+            self.log_line(f"Game-session monitor warning: {exc}")
         finally:
             self.root.after(3000, self._poll_game_session)
 
@@ -1937,25 +1971,32 @@ class TertiumApp:
             messagebox.showinfo("Darktide is already running", "Darktide.exe is already running.")
             return
 
-        # If the newest session produced a high-confidence mod stack, offer the
-        # recovery path before launching the exact same setup again. Explicit
-        # Crash Guard actions pass skip_crash_guard=True so they never prompt twice.
-        finding = None if skip_crash_guard else self._refresh_crash_guard()
-        candidate = self._primary_crash_candidate(finding)
-        if not skip_crash_guard and candidate and candidate.get("confidence") == "high":
-            name = str(candidate.get("logical_name") or "the suspected mod")
-            choice = messagebox.askyesnocancel(
-                "Crash Guard",
-                f"The most recent modded session crashed and {name} appears directly in the crash stack.\n\n"
-                f"Yes: disable {name}, quarantine it for this Darktide build/mod version, and launch.\n"
-                "No: launch the current setup anyway.\n"
-                "Cancel: do not launch.",
-            )
-            if choice is None:
-                return
-            if choice is True:
+        # One-button recovery: never ask the user to diagnose a previous crash.
+        # A direct stack suspect is quarantined automatically. If the crash cannot
+        # be attributed confidently, preserve the user's state and launch a
+        # core-only safe set instead of repeating the same broken mod combination.
+        if not skip_crash_guard:
+            finding = self._refresh_crash_guard()
+            if finding:
+                candidate = self._primary_crash_candidate(finding)
                 try:
-                    self._quarantine_candidate(name, finding)
+                    if candidate and str(candidate.get("confidence") or "").lower() == "high":
+                        name = str(candidate.get("logical_name") or "")
+                        if name:
+                            self._quarantine_candidate(name, finding)
+                            self.log_line(f"Automatic Crash Guard: disabled {name} before launch.")
+                    else:
+                        result = enter_troubleshooting_safe_mode(
+                            self.game_dir,
+                            self.store,
+                            maintain_load_order=True,
+                        )
+                        self._remember_handled_crash(finding)
+                        self.log_line(
+                            "Automatic Crash Guard: no reliable single culprit; "
+                            f"switched to the core-only safe set ({len(result.get('changed') or [])} mod(s) disabled)."
+                        )
+                        self.refresh()
                 except Exception as exc:
                     messagebox.showerror("Crash Guard", str(exc))
                     return
@@ -2862,6 +2903,8 @@ class TertiumApp:
                             self.config["last_modded_launch_at"] = time.time()
                             self.config["last_launch_mode"] = "modded"
                             self._save_config()
+                            self.auto_recovery_armed = True
+                            self.auto_recovery_attempted = False
                             open_game_launcher(self.game_dir)
                         except Exception as exc:
                             messagebox.showerror("Launch", str(exc))
