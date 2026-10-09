@@ -47,7 +47,9 @@ def test_user_can_override_or_remove_crash_quarantine():
     assert "self.compatibility.clear_quarantine(logical_name)" in toggle
     assert "write_mod_load_order(self.game_dir, enabled)" in toggle
 
-    remove = source[source.index("    def remove_selected"):source.index("    def restore_removed_mod")]
+    remove_start = source.index("    def remove_selected")
+    remove_end = source.find("\n    def ", remove_start + 8)
+    remove = source[remove_start: remove_end if remove_end != -1 else len(source)]
     assert "self.compatibility.clear_quarantine(logical_name)" in remove
     assert "write_mod_load_order(self.game_dir, enabled)" in remove
     assert "self._refresh_crash_guard()" in remove
