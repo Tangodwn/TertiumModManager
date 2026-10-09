@@ -33,37 +33,26 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install build dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
-      - name: Build Windows application smoke test
-        run: python -m PyInstaller --noconfirm --clean TertiumModManager.spec
-      - name: Verify application output
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "dist/TertiumModManager/TertiumModManager.exe")) {
-            throw "PyInstaller did not produce TertiumModManager.exe."
-          }
 
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Build Inno Setup installer smoke test
+      - name: Run release-builder smoke test
         shell: pwsh
-        run: |
-          $version = (Get-Content VERSION -Raw).Trim()
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler was not found." }
-          & $iscc "/DMyAppVersion=$version" "installer\TertiumModManager.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup smoke build failed." }
+        run: ./scripts/build_windows_release.ps1 -InstallerOnly -SkipTests
 
-      - name: Verify installer output
+      - name: Verify packaged installer and checksum
         shell: pwsh
         run: |
           if (-not (Test-Path "release/TertiumModManager-Setup-x64.exe")) {
-            throw "Inno Setup did not produce TertiumModManager-Setup-x64.exe."
+            throw "Release builder did not produce the Windows installer."
+          }
+          if (-not (Test-Path "release/TertiumModManager-Setup-x64.exe.sha256")) {
+            throw "Release builder did not produce the SHA-256 checksum."
           }
