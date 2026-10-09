@@ -83,21 +83,23 @@ jobs:
             gh api --method POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$env:RELEASE_TAG" -f sha="${{ github.sha }}"
           }
 
-      - name: Publish GitHub release assets
+      - name: Publish public GitHub release assets
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.TERTIUM_RELEASES_TOKEN }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_REPO: Tangodwn/TertiumModManager-Releases
         run: |
+          if (-not $env:GH_TOKEN) { throw "TERTIUM_RELEASES_TOKEN repository secret is not configured." }
           $notes = "RELEASE_NOTES_$env:RELEASE_VERSION.md"
-          gh release view $env:RELEASE_TAG *> $null
+          gh release view $env:RELEASE_TAG --repo $env:RELEASE_REPO *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --clobber
+            gh release upload $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --repo $env:RELEASE_REPO --clobber
           } else {
             if (Test-Path $notes) {
-              gh release create $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --title "Tertium Mod Manager $env:RELEASE_TAG" --notes-file $notes
+              gh release create $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --repo $env:RELEASE_REPO --title "Tertium Mod Manager $env:RELEASE_TAG" --notes-file $notes
             } else {
-              gh release create $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --title "Tertium Mod Manager $env:RELEASE_TAG" --generate-notes
+              gh release create $env:RELEASE_TAG "release/TertiumModManager-Setup-x64.exe" "release/TertiumModManager-Setup-x64.exe.sha256" --repo $env:RELEASE_REPO --title "Tertium Mod Manager $env:RELEASE_TAG" --generate-notes
             }
           }
