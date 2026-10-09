@@ -14,7 +14,7 @@ def test_version_comparison():
 def test_fetch_latest_release_reads_installer_digest(monkeypatch):
     payload = {
         "tag_name": "v0.8.8",
-        "html_url": "https://github.com/Tangodwn/TertiumModManager/releases/tag/v0.8.8",
+        "html_url": "https://github.com/Tangodwn/TertiumModManager-Releases/releases/tag/v0.8.8",
         "published_at": "2026-10-09T00:00:00Z",
         "assets": [
             {
@@ -70,6 +70,11 @@ def test_verify_installer_rejects_mismatch():
             pass
         else:
             raise AssertionError("checksum mismatch must fail")
+
+
+def test_public_release_channel_is_configured():
+    assert self_update.RELEASE_REPO == "Tangodwn/TertiumModManager-Releases"
+    assert "TertiumModManager-Releases" in self_update.RELEASE_API
 
 
 def test_launcher_self_update_ui_contract():
