@@ -43,5 +43,6 @@ Root: HKCU; Subkey: "Software\Classes\nxm"; ValueType: string; ValueName: "URL P
 Root: HKCU; Subkey: "Software\Classes\nxm\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: nxmhandler
 Root: HKCU; Subkey: "Software\Classes\nxm\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: nxmhandler
 
-[Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Tertium Mod Manager"; Flags: nowait postinstall skipifsilent
+; No [Run] auto-launch.
+; Manual/bootstrap installs finish cleanly and the user launches from the shortcut.
+; In-app self-update restarts Tertium after the silent installer exits.
