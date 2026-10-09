@@ -411,6 +411,9 @@ class TertiumApp:
         self.disable_retry_button = ttk.Button(crash_actions, text="Disable Suspect & Retry", command=self.disable_crash_suspect_and_retry)
         self.disable_retry_button.pack(side=LEFT, padx=(0, 6))
         self.disable_retry_button.state(["disabled"])
+        self.delete_suspect_button = ttk.Button(crash_actions, text="Delete Suspect", command=self.delete_crash_suspect)
+        self.delete_suspect_button.pack(side=LEFT, padx=(0, 6))
+        self.delete_suspect_button.state(["disabled"])
         self.launch_anyway_button = ttk.Button(crash_actions, text="Launch Anyway", command=self.launch_crash_anyway)
         self.launch_anyway_button.pack(side=LEFT, padx=(0, 6))
         self.launch_anyway_button.state(["disabled"])
@@ -844,6 +847,12 @@ class TertiumApp:
                 self.disable_retry_button.state(["!disabled"])
             else:
                 self.disable_retry_button.state(["disabled"])
+            if candidate and name and name.casefold() != "dmf":
+                self.delete_suspect_button.config(text=f"Delete {name}")
+                self.delete_suspect_button.state(["!disabled"])
+            else:
+                self.delete_suspect_button.config(text="Delete Suspect")
+                self.delete_suspect_button.state(["disabled"])
             if finding:
                 self.launch_anyway_button.state(["!disabled"])
                 self.crash_details_button.state(["!disabled"])
@@ -1028,6 +1037,60 @@ class TertiumApp:
             return
         self.log_line(f"Crash Guard retry: launching modded with {name} disabled.")
         self.repair_and_launch(skip_crash_guard=True)
+
+    def delete_crash_suspect(self) -> None:
+        finding = self.recent_crash_finding or self._refresh_crash_guard()
+        candidate = self._primary_crash_candidate(finding)
+        if not candidate:
+            messagebox.showinfo("Crash Guard", "Tertium does not currently have a specific mod suspect to delete.")
+            return
+        name = str(candidate.get("logical_name") or "").strip()
+        if not name or name.casefold() == "dmf":
+            messagebox.showerror("Crash Guard", "That mod cannot be removed from Crash Guard.")
+            return
+        installed = next(
+            (
+                item for item in scan_installed_mods(self.game_dir)
+                if str(item.get("logical_name") or "").casefold() == name.casefold()
+            ),
+            None,
+        )
+        if not installed:
+            messagebox.showinfo("Crash Guard", f"{name} is no longer installed.")
+            self.compatibility.clear_quarantine(name)
+            self._refresh_crash_guard()
+            return
+        if not messagebox.askyesno(
+            "Delete crash suspect",
+            f"Remove {name} from the active Darktide installation?\n\n"
+            "Tertium will remove it from the load order and move the mod folder into a reversible safety backup. "
+            "It will no longer load unless you restore or reinstall it.",
+        ):
+            return
+        try:
+            folder = str(installed.get("folder") or "")
+            rec = self._record_for_folder(folder)
+            backup = quarantine_mod_folder(self.game_dir, folder, self.store, record=rec)
+            if rec:
+                self.store.remove_mod(rec.mod_id)
+            self.compatibility.clear_quarantine(name)
+            enabled = [
+                m["logical_name"] for m in scan_installed_mods(self.game_dir)
+                if m["enabled"] and m["logical_name"].casefold() != "dmf"
+            ]
+            write_mod_load_order(self.game_dir, enabled)
+            self._remember_handled_crash(finding)
+            self.recent_crash_finding = None
+            self.log_line(f"Crash Guard deleted {name} from the active mod install; safety backup: {backup.name}.")
+            self.refresh()
+            self._refresh_crash_guard()
+            messagebox.showinfo(
+                "Mod removed",
+                f"{name} was removed from the active Darktide mod setup and load order.\n\n"
+                "A reversible safety backup was kept in Tertium in case you need it later.",
+            )
+        except Exception as exc:
+            messagebox.showerror("Crash Guard", str(exc))
 
     def launch_crash_anyway(self) -> None:
         finding = self.recent_crash_finding or self._refresh_crash_guard()
