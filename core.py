@@ -170,11 +170,11 @@ def link_local_record_to_nexus(
         )
 
     try:
-        file_id = int(file_info.get("file_id"))
+        file_id = int(file_info.get("file_id") or 0)
     except (TypeError, ValueError):
         file_id = 0
-    if file_id <= 0:
-        raise ModManagerError("A valid Nexus file ID is required so future update lineage is accurate.")
+    if file_id < 0:
+        raise ModManagerError("Nexus file ID cannot be negative.")
 
     records_before = store.all()
     stamp = time.strftime("%Y%m%d-%H%M%S")
