@@ -100,3 +100,18 @@ def test_reenabled_mod_ignores_stale_crash_until_fresh_failure():
     assert "self._arm_crash_retest(logical_name)" in toggle
     quarantine = source[source.index("    def _quarantine_candidate"):source.index("    def disable_crash_suspect_and_retry")]
     assert "self._clear_crash_retest(logical_name)" in quarantine
+
+
+def test_hybrid_visual_polish_has_borders_and_brand_graphic():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert 'style.configure("Border.TFrame"' in source
+    assert 'style.configure("AccentBorder.TFrame"' in source
+    assert 'style.configure("AccentCard.TLabelframe"' in source
+    assert 'style.configure("DangerCard.TLabelframe"' in source
+    assert "brand_mark = tk.Canvas(" in source
+    assert "brand_mark.create_polygon(" in source
+    assert 'text="T"' in source
+    assert 'style="DangerCard.TLabelframe"' in source
+    assert 'style="AccentCard.TLabelframe"' in source
+    assert 'tree_shell = ttk.Frame(mods_tab, style="Border.TFrame"' in source
