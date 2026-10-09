@@ -853,6 +853,36 @@ class TertiumApp:
         except Exception:
             pass
 
+    def _undismiss_crash_signatures_for_mod(self, logical_name: str) -> int:
+        """Allow a user-forced re-enable to be tested against the same crash again."""
+        signatures = self.compatibility.crash_signatures(logical_name)
+        if not signatures:
+            return 0
+        existing = [str(x) for x in (self.config.get("dismissed_crash_signatures") or [])]
+        kept = [x for x in existing if x not in signatures]
+        removed = len(existing) - len(kept)
+        if removed:
+            self.config["dismissed_crash_signatures"] = kept
+            self._save_config()
+        return removed
+
+    def _learned_crash_candidate(self, finding: dict | None) -> dict | None:
+        """Use prior build/version-specific crash evidence when the new stack is generic."""
+        if not finding or not self.game_dir:
+            return None
+        versions = {
+            str(item.get("logical_name") or "").casefold(): str(item.get("version") or "")
+            for item in scan_installed_mods(self.game_dir)
+        }
+        learned = self.compatibility.learned_candidates_for_error(
+            str(finding.get("error") or ""),
+            read_steam_build_id(self.game_dir),
+            versions,
+        )
+        if len(learned) == 1:
+            return dict(learned[0])
+        return None
+
     def _refresh_crash_guard(self) -> dict | None:
         if not self.game_dir or not validate_game_dir(self.game_dir)[0]:
             self.recent_crash_finding = None
@@ -882,14 +912,23 @@ class TertiumApp:
             return None
 
         signature = str(finding.get("signature") or "")
+        candidate = self._primary_crash_candidate(finding)
+        if not candidate or str(candidate.get("confidence") or "").lower() == "low":
+            learned = self._learned_crash_candidate(finding)
+            if learned:
+                finding["candidates"] = [learned, *list(finding.get("candidates") or [])]
+                candidate = learned
+                self.log_line(
+                    f"Crash Guard learned match: repeated error pattern maps to {learned.get('logical_name')} "
+                    "for this Darktide build/mod version."
+                )
+
         ignored = {str(x) for x in (self.config.get("dismissed_crash_signatures") or [])}
-        if signature and signature in ignored:
+        if signature and signature in ignored and not candidate:
             self.recent_crash_finding = None
             self.crash_notice_var.set("Previous crash notice dismissed. No new mod-specific crash detected.")
             self._set_crash_guard_actions()
             return None
-
-        candidate = self._primary_crash_candidate(finding)
         self.recent_crash_finding = finding
         if candidate:
             name = str(candidate.get("logical_name") or "Unknown mod")
@@ -919,9 +958,15 @@ class TertiumApp:
                     f"{name} is quarantined for this Darktide build/mod version after a recent crash."
                 )
             elif confidence == "high":
-                self.crash_notice_var.set(
-                    f"Darktide crashed during the last modded session. {name} appears in the crash stack and is the likely cause."
-                )
+                if str(candidate.get("source") or "") == "learned-crash-signature":
+                    self.crash_notice_var.set(
+                        f"Darktide crashed with a repeated error previously associated with {name} "
+                        "for this same Darktide build and mod version."
+                    )
+                else:
+                    self.crash_notice_var.set(
+                        f"Darktide crashed during the last modded session. {name} appears in the crash stack and is the likely cause."
+                    )
             else:
                 self.crash_notice_var.set(
                     f"Darktide crashed. {name} is a {confidence}-confidence suspect; review details before disabling it."
@@ -2580,10 +2625,12 @@ class TertiumApp:
             logical_name = folder.lstrip("_")
             new_name = toggle_mod_folder(self.game_dir, folder, not enabled_now)
             if not enabled_now:
+                reopened = self._undismiss_crash_signatures_for_mod(logical_name)
                 cleared = self.compatibility.clear_quarantine(logical_name)
-                if cleared:
+                if cleared or reopened:
                     self.log_line(
-                        f"User re-enabled {logical_name}; cleared {cleared} crash quarantine record(s)."
+                        f"User re-enabled {logical_name}; cleared {cleared} quarantine flag(s) and "
+                        f"re-armed {reopened} prior crash signature(s) for testing."
                     )
             sync_registry_folders(self.game_dir, self.store)
             self.log_line(f"{'Enabled' if not enabled_now else 'Disabled'} {new_name.lstrip('_')}")
@@ -2652,15 +2699,17 @@ class TertiumApp:
             backup = quarantine_mod_folder(self.game_dir, folder, self.store, record=rec)
             if rec:
                 self.store.remove_mod(rec.mod_id)
+            reopened = self._undismiss_crash_signatures_for_mod(logical_name)
             cleared = self.compatibility.clear_quarantine(logical_name)
             enabled = [
                 m["logical_name"] for m in scan_installed_mods(self.game_dir)
                 if m["enabled"] and m["logical_name"].lower() != "dmf"
             ]
             write_mod_load_order(self.game_dir, enabled)
-            if cleared:
+            if cleared or reopened:
                 self.log_line(
-                    f"Removed {name}; cleared {cleared} crash quarantine record(s) so a future reinstall is not auto-disabled."
+                    f"Removed {name}; cleared {cleared} quarantine flag(s) and re-armed "
+                    f"{reopened} prior crash signature(s) so a future reinstall is evaluated fresh."
                 )
             self.log_line(f"Removed {name} from Darktide and moved it to reversible backup: {backup.name}")
             self.refresh()
