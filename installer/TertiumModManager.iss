@@ -41,7 +41,7 @@ Name: "{autodesktop}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; Ta
 Root: HKCU; Subkey: "Software\Classes\nxm"; ValueType: string; ValueName: ""; ValueData: "URL:Nexus Mods Protocol"; Flags: uninsdeletekey; Tasks: nxmhandler
 Root: HKCU; Subkey: "Software\Classes\nxm"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Tasks: nxmhandler
 Root: HKCU; Subkey: "Software\Classes\nxm\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: nxmhandler
-Root: HKCU; Subkey: "Software\Classes\nxm\shell\open\command"; ValueType: string; ValueName: ""; ValueData: "\"\"{app}\{#MyAppExeName}\"\" \"\"%1\"\""; Tasks: nxmhandler
+Root: HKCU; Subkey: "Software\Classes\nxm\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: nxmhandler
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Tertium Mod Manager"; Flags: nowait postinstall skipifsilent
