@@ -1,2 +1,2 @@
-__version__ = "0.8.22"
-RELEASE_NAME = "Crash Retest Control"
+__version__ = "0.8.23"
+RELEASE_NAME = "Hybrid Visual Refresh"
