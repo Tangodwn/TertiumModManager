@@ -1073,9 +1073,9 @@ def test_github_windows_ci_and_release_workflows_are_present():
     assert "./scripts/build_windows_release.ps1 -SkipTests" in release
     assert "Portable-x64.zip" in release
     assert "TertiumModManager-Setup-x64.exe.sha256" in release
-    # Normal release assets deliberately exclude the portable ZIP.
+    # Normal release assets include the versioned ZIP used by Tertium's in-app updater.
     publish = release[release.index("Publish GitHub release assets"):]
-    assert "Portable-x64.zip" not in publish
+    assert "Portable-x64.zip" in publish
 
 
 def test_guardian_recovery_and_nexus_fallback_source_contract():
