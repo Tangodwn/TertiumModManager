@@ -144,6 +144,67 @@ class RegistryStore:
         return self.cache_dir / f"{mod_id}-{file_id}{suffix}"
 
 
+def link_local_record_to_nexus(
+    store: RegistryStore,
+    local_mod_id: int,
+    nexus_mod_id: int,
+    mod_info: dict[str, Any],
+    file_info: dict[str, Any],
+) -> ModRecord:
+    """Promote one adopted local-only record to Nexus tracking without touching game files."""
+    local = store.get(local_mod_id)
+    if local is None:
+        raise ModManagerError("The selected local mod is no longer in Tertium's registry.")
+    if local.source != "local":
+        raise ModManagerError(f"{local.name} is already Nexus-linked.")
+    if local.mod_id in CORE_MOD_IDS:
+        raise ModManagerError("Core framework records cannot be linked through the normal existing-mod workflow.")
+    if nexus_mod_id <= 0:
+        raise ModManagerError("Nexus mod ID must be greater than zero.")
+
+    existing = store.get(nexus_mod_id)
+    if existing is not None and existing.mod_id != local.mod_id:
+        raise ModManagerError(
+            f"Nexus mod {nexus_mod_id} is already linked to {existing.name}. "
+            "Tertium will not merge two installed records automatically."
+        )
+
+    try:
+        file_id = int(file_info.get("file_id"))
+    except (TypeError, ValueError):
+        file_id = 0
+    if file_id <= 0:
+        raise ModManagerError("A valid Nexus file ID is required so future update lineage is accurate.")
+
+    records_before = store.all()
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    backup = store.backup_dir / f"registry-link-{stamp}-{abs(local.mod_id)}.json"
+    save_json(backup, {"mods": [record.to_dict() for record in records_before]})
+
+    linked = ModRecord(
+        mod_id=int(nexus_mod_id),
+        file_id=file_id,
+        name=str(mod_info.get("name") or local.name),
+        version=str(file_info.get("version") or file_info.get("mod_version") or local.version or ""),
+        file_name=str(file_info.get("file_name") or ""),
+        category_id=file_info.get("category_id"),
+        folders=list(local.folders or []),
+        enabled=bool(local.enabled),
+        installed_at=float(local.installed_at or time.time()),
+        source="nexus",
+        archive_sha256="",
+        archive_size=0,
+    )
+    kept = [
+        record
+        for record in records_before
+        if record.mod_id not in {local.mod_id, int(nexus_mod_id)}
+    ]
+    kept.append(linked)
+    store.save_all(kept)
+    return linked
+
+
 
 
 class CompatibilityStore:
