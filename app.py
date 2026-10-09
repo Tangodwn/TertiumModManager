@@ -1321,10 +1321,12 @@ class TertiumApp:
         self.config["nexus_name"] = str(name)
         self.config["nexus_is_premium"] = bool(data.get("is_premium", False))
         self._save_config()
-        self.api_label.set(f"Nexus: {name} · automatic + browser fallback")
+        premium = bool(data.get("is_premium", False))
+        tier = "Premium · automatic downloads" if premium else "Free · automatic downloads restricted by Nexus"
+        self.api_label.set(f"Nexus: {name} · {tier}")
         self.log_line(
-            f"Nexus API key validated for {name}; Tertium will try automatic downloads first "
-            "and fall back to nxm:// browser authorization only when Nexus requires it."
+            f"Nexus API key validated for {name}; account tier: {'Premium' if premium else 'Free'}. "
+            "UPDATE ALL never opens Nexus pages automatically."
         )
         self.root.after(100, lambda: self._start_auto_nexus_reconcile(announce=True))
 
@@ -2004,8 +2006,8 @@ class TertiumApp:
         if not messagebox.askyesno(
             "Update all tracked mods",
             "Tertium will check every tracked Nexus mod and create a protected state snapshot before changing anything.\n\n"
-            "For each update, Tertium will try the automatic Nexus download path first. If Nexus requires browser "
-            "authorization, Tertium will open that file page and wait for one Mod Manager Download click, then continue automatically.\n\n"
+            "UPDATE ALL is browser-free: Tertium will only use download links Nexus authorizes directly through the API. "
+            "It will not open Nexus pages or ask you to manually download files.\n\n"
             "Continue?",
         ):
             return
@@ -2127,13 +2129,26 @@ class TertiumApp:
                 urls = client.direct_download_urls(old.mod_id, new_file_id)
             except ModManagerError as exc:
                 if browser_authorization_required(exc):
-                    remaining = updates[idx - 1:]
+                    blocked = updates[idx - 1:]
+                    names = ", ".join(item[0].name for item in blocked[:6])
+                    if len(blocked) > 6:
+                        names += f", and {len(blocked) - 6} more"
                     self.queue.put((
                         "log",
-                        f"Nexus requires browser authorization for {old.name}; switching the remaining "
-                        f"{len(remaining)} update(s) to guided authorization automatically.",
+                        f"Nexus refused direct API download authorization for {old.name}. "
+                        "Tertium will not open a browser or hand the update back to the user.",
                     ))
-                    self.queue.put(("guided_updates", remaining))
+                    self.queue.put((
+                        "message",
+                        (
+                            "error",
+                            "Nexus blocked automatic download",
+                            "Tertium found the update(s), but Nexus did not authorize a direct API download for this account.\n\n"
+                            f"Blocked update(s): {names}\n\n"
+                            "UPDATE ALL will not open Nexus or ask you to download files manually. "
+                            "Nexus-hosted files can only be zero-click updated when the Nexus account/API session is permitted to request direct download links.",
+                        ),
+                    ))
                     return
                 raise
             file_name = str(successor.get("file_name") or f"{old.mod_id}-{new_file_id}.zip")
