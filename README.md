@@ -2,8 +2,8 @@
 
 Tertium is a free, unofficial Windows mod manager and launcher for **Warhammer 40,000: Darktide**.
 
-Current version: **0.8.12**  
-Current development baseline: **v0.8.12 — One-Button Recovery**
+Current version: **0.8.13**  
+Current development baseline: **v0.8.13 — Clean Bootstrap**
 
 ## Goals
 
