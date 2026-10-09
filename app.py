@@ -1935,12 +1935,17 @@ class TertiumApp:
     def _install_record_archive(self, archive: Path, record: ModRecord) -> None:
         if record.mod_id != DML_MOD_ID:
             install_archive(self.game_dir, archive, record, self.store, log=lambda m: self.queue.put(("log", m)))
-            if record.mod_id not in {DMF_MOD_ID, AML_MOD_ID} and self.store.get(AML_MOD_ID) is None:
+            # Tertium owns mod_load_order.txt. After every normal mod install/update,
+            # rebuild it from the currently enabled mod folders even when AML exists.
+            # This makes newly downloaded mods immediately loadable and keeps the
+            # manual fallback accurate without asking the user to edit the file.
+            if record.mod_id not in {DMF_MOD_ID, AML_MOD_ID}:
                 enabled = [
                     m["logical_name"] for m in scan_installed_mods(self.game_dir)
-                    if m["enabled"] and m["logical_name"].lower() != "dmf"
+                    if m["enabled"] and m["logical_name"].lower() not in {"dmf", "base"}
                 ]
                 write_mod_load_order(self.game_dir, enabled)
+                self.queue.put(("log", f"Updated mod_load_order.txt with {len(enabled)} enabled mod(s)."))
             return
 
         was_patched = has_dml(self.game_dir) and loader_patch_state(self.game_dir) is True
