@@ -19,7 +19,7 @@ from version import __version__
 RELEASE_REPO = "Tangodwn/TertiumModManager"
 RELEASE_API = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
 USER_AGENT = f"TertiumModManager/{__version__} (+self updater)"
-INSTALLER_NAME = "TertiumModManager-Setup-x64.exe"
+PACKAGE_SUFFIX = "-Portable-x64.zip"
 
 
 class SelfUpdateError(RuntimeError):
@@ -31,9 +31,10 @@ class ReleaseInfo:
     version: str
     tag: str
     page_url: str
-    installer_url: str
-    installer_size: int = 0
-    installer_sha256: str = ""
+    package_url: str
+    package_name: str
+    package_size: int = 0
+    package_sha256: str = ""
     checksum_url: str = ""
     published_at: str = ""
 
@@ -70,7 +71,7 @@ def _request_json(url: str, timeout: float = 15.0) -> dict[str, Any]:
         if exc.code in {401, 403, 404}:
             raise SelfUpdateError(
                 "Tertium's release feed is not publicly reachable. "
-                "Automatic self-updates require a public release endpoint."
+                "Automatic self-updates require the public GitHub release channel."
             ) from exc
         raise SelfUpdateError(f"GitHub release check failed with HTTP {exc.code}.") from exc
     except urllib.error.URLError as exc:
@@ -85,21 +86,24 @@ def fetch_latest_release(timeout: float = 15.0) -> ReleaseInfo:
     if not tag:
         raise SelfUpdateError("GitHub returned a release without a version tag.")
     version = tag[1:] if tag.lower().startswith("v") else tag
+    expected_name = f"TertiumModManager-{version}-Portable-x64.zip"
 
-    installer = None
+    package = None
     checksum = None
     for asset in data.get("assets", []):
         if not isinstance(asset, dict):
             continue
         name = str(asset.get("name") or "")
-        if name == INSTALLER_NAME:
-            installer = asset
-        elif name == INSTALLER_NAME + ".sha256":
+        if name == expected_name:
+            package = asset
+        elif name == expected_name + ".sha256":
             checksum = asset
-    if not installer:
-        raise SelfUpdateError(f"Latest release does not contain {INSTALLER_NAME}.")
+    if not package:
+        raise SelfUpdateError(
+            f"Latest release does not contain the in-app update package {expected_name}."
+        )
 
-    digest = str(installer.get("digest") or "").strip()
+    digest = str(package.get("digest") or "").strip()
     sha = digest.split(":", 1)[1].strip().lower() if digest.lower().startswith("sha256:") else ""
     if not re.fullmatch(r"[0-9a-f]{64}", sha):
         sha = ""
@@ -108,31 +112,31 @@ def fetch_latest_release(timeout: float = 15.0) -> ReleaseInfo:
         version=version,
         tag=tag,
         page_url=str(data.get("html_url") or f"https://github.com/{RELEASE_REPO}/releases/tag/{tag}"),
-        installer_url=str(installer.get("browser_download_url") or ""),
-        installer_size=int(installer.get("size") or 0),
-        installer_sha256=sha,
+        package_url=str(package.get("browser_download_url") or ""),
+        package_name=expected_name,
+        package_size=int(package.get("size") or 0),
+        package_sha256=sha,
         checksum_url=str((checksum or {}).get("browser_download_url") or ""),
         published_at=str(data.get("published_at") or ""),
     )
 
 
-def download_installer(
+def download_update_package(
     release: ReleaseInfo,
     destination: Path,
     progress: Callable[[int, int | None], None] | None = None,
 ) -> Path:
-    if not release.installer_url:
-        raise SelfUpdateError("Release does not contain a downloadable installer URL.")
+    if not release.package_url:
+        raise SelfUpdateError("Release does not contain an in-app update package URL.")
     progress = progress or (lambda _done, _total: None)
     destination.parent.mkdir(parents=True, exist_ok=True)
     part = destination.with_suffix(destination.suffix + ".part")
     try:
-        if part.exists():
-            part.unlink()
-        req = urllib.request.Request(release.installer_url, headers={"User-Agent": USER_AGENT})
+        part.unlink(missing_ok=True)
+        req = urllib.request.Request(release.package_url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=60) as response:
             total_s = response.headers.get("Content-Length")
-            total = int(total_s) if total_s and total_s.isdigit() else (release.installer_size or None)
+            total = int(total_s) if total_s and total_s.isdigit() else (release.package_size or None)
             done = 0
             with part.open("wb") as fh:
                 while True:
@@ -164,7 +168,7 @@ def sha256_file(path: Path) -> str:
 
 
 def _fetch_expected_checksum(release: ReleaseInfo, timeout: float = 15.0) -> str:
-    expected = release.installer_sha256.strip().lower()
+    expected = release.package_sha256.strip().lower()
     if re.fullmatch(r"[0-9a-f]{64}", expected):
         return expected
     if not release.checksum_url:
@@ -182,12 +186,12 @@ def _fetch_expected_checksum(release: ReleaseInfo, timeout: float = 15.0) -> str
     return match.group(1).lower()
 
 
-def verify_installer(path: Path, release: ReleaseInfo) -> str:
+def verify_update_package(path: Path, release: ReleaseInfo) -> str:
     actual = sha256_file(path)
     expected = _fetch_expected_checksum(release)
     if actual != expected:
         raise SelfUpdateError(
-            f"Downloaded installer failed SHA-256 verification. Expected {expected}, got {actual}."
+            f"Downloaded update failed SHA-256 verification. Expected {expected}, got {actual}."
         )
     return actual
 
@@ -203,31 +207,66 @@ def update_cache_dir() -> Path:
 
 
 def installed_executable() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve()
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
         return base / "Programs" / "TertiumModManager" / "TertiumModManager.exe"
-    return Path(sys.executable)
+    return Path(sys.executable).resolve()
 
 
-def schedule_windows_installer(installer: Path, current_pid: int | None = None) -> Path:
+def schedule_windows_package_update(package: Path, current_pid: int | None = None) -> Path:
+    """Apply a verified ZIP after Tertium exits, then restart the replaced app.
+
+    This deliberately does not execute a downloaded installer. That avoids the
+    temp-executable path that AV products commonly block and makes GitHub Releases
+    the launcher's normal update channel.
+    """
     if os.name != "nt":
-        raise SelfUpdateError("Automatic installer handoff is only supported on Windows.")
-    if not installer.exists():
-        raise SelfUpdateError("Downloaded update installer is missing.")
+        raise SelfUpdateError("Automatic package updates are only supported on Windows.")
+    if not package.exists():
+        raise SelfUpdateError("Downloaded update package is missing.")
 
     pid = int(current_pid or os.getpid())
-    restart = installed_executable()
-    script = update_cache_dir() / f"apply-update-{int(time.time())}.ps1"
-    installer_q = str(installer).replace("'", "''")
-    restart_q = str(restart).replace("'", "''")
+    current_exe = installed_executable()
+    install_dir = current_exe.parent
+    restart = install_dir / "TertiumModManager.exe"
+    cache = update_cache_dir()
+    script = cache / f"apply-update-{int(time.time())}.ps1"
+    stage = cache / f"stage-{int(time.time())}-{pid}"
+    backup = cache / f"backup-{int(time.time())}-{pid}"
+
+    def q(value: Path) -> str:
+        return str(value).replace("'", "''")
+
     script.write_text(
         "$ErrorActionPreference = 'Stop'\n"
         f"$pidToWait = {pid}\n"
-        f"$installer = '{installer_q}'\n"
-        f"$restart = '{restart_q}'\n"
+        f"$package = '{q(package)}'\n"
+        f"$install = '{q(install_dir)}'\n"
+        f"$restart = '{q(restart)}'\n"
+        f"$stage = '{q(stage)}'\n"
+        f"$backup = '{q(backup)}'\n"
         "while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }\n"
-        "$p = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS') -Wait -PassThru\n"
-        "if ($p.ExitCode -eq 0 -and (Test-Path $restart)) { Start-Process -FilePath $restart }\n"
+        "if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }\n"
+        "New-Item -ItemType Directory -Path $stage | Out-Null\n"
+        "Expand-Archive -LiteralPath $package -DestinationPath $stage -Force\n"
+        "$candidate = Join-Path $stage 'TertiumModManager.exe'\n"
+        "if (-not (Test-Path $candidate)) { throw 'Update package is missing TertiumModManager.exe.' }\n"
+        "if (Test-Path $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }\n"
+        "if (Test-Path $install) { Move-Item -LiteralPath $install -Destination $backup }\n"
+        "try {\n"
+        "  Move-Item -LiteralPath $stage -Destination $install\n"
+        "  if (-not (Test-Path $restart)) { throw 'Updated executable is missing after replacement.' }\n"
+        "  Start-Process -FilePath $restart\n"
+        "} catch {\n"
+        "  if (Test-Path $install) { Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction SilentlyContinue }\n"
+        "  if (Test-Path $backup) { Move-Item -LiteralPath $backup -Destination $install -ErrorAction SilentlyContinue }\n"
+        "  throw\n"
+        "}\n"
+        "Start-Sleep -Seconds 2\n"
+        "if (Test-Path $backup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }\n"
+        "Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue\n"
         "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n",
         encoding="utf-8",
     )
