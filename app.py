@@ -83,6 +83,16 @@ from nexus import (
     unique_catalog_match,
 )
 from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_official_news
+from self_update import (
+    ReleaseInfo,
+    SelfUpdateError,
+    download_installer,
+    fetch_latest_release,
+    is_newer_version,
+    schedule_windows_installer,
+    update_cache_dir,
+    verify_installer,
+)
 from winutil import protect_secret, register_nxm_protocol, unprotect_secret
 from version import __version__, RELEASE_NAME
 
@@ -155,6 +165,9 @@ class TertiumApp:
         self.recent_crash_finding: dict | None = None
         self.news_title_var = StringVar(value="Official Darktide Updates")
         self.news_date_var = StringVar(value="Checking Steam…")
+        self.app_update_text = StringVar(value=f"Tertium v{APP_VERSION} · Check for Update")
+        self.app_update_status = StringVar(value="Application updates: not checked")
+        self.available_app_release: ReleaseInfo | None = None
         self.news_url = OFFICIAL_NEWS_URL
         self.mod_count_text = StringVar(value="0 mods")
         self.sort_reverse: dict[str, bool] = {}
@@ -371,7 +384,13 @@ class TertiumApp:
 
         ttk.Button(action_side, text="▶  PLAY MODDED", style="Launch.TButton", command=self.repair_and_launch).pack(fill=X, ipady=10, pady=(0, 8))
         ttk.Button(action_side, text="▷  PLAY VANILLA", style="Secondary.TButton", command=self.launch_vanilla).pack(fill=X, ipady=7, pady=(0, 8))
-        ttk.Button(action_side, text="↻  UPDATE ALL", style="Update.TButton", command=self.update_all).pack(fill=X, ipady=7, pady=(0, 12))
+        ttk.Button(action_side, text="↻  UPDATE ALL", style="Update.TButton", command=self.update_all).pack(fill=X, ipady=7, pady=(0, 8))
+        self.app_update_button = ttk.Button(
+            action_side,
+            textvariable=self.app_update_text,
+            command=self.check_or_install_app_update,
+        )
+        self.app_update_button.pack(fill=X, ipady=5, pady=(0, 12))
 
         status_card = ttk.Frame(action_side, style="Panel.TFrame", padding=12)
         status_card.pack(fill=X, pady=(0, 8))
@@ -601,6 +620,11 @@ class TertiumApp:
         ttk.Button(nexusrow, text="Set API Key", command=self.set_api_key).pack(side=LEFT, padx=(0, 6))
         ttk.Button(nexusrow, text="Register Nexus Links", command=self.register_nxm).pack(side=LEFT)
 
+        app_update_box = ttk.LabelFrame(tools_tab, text=" Tertium Updates ", padding=12)
+        app_update_box.pack(fill=X, pady=(10, 0))
+        ttk.Label(app_update_box, textvariable=self.app_update_status, wraplength=900, justify="left").pack(side=LEFT, fill=X, expand=True)
+        ttk.Button(app_update_box, textvariable=self.app_update_text, command=self.check_or_install_app_update).pack(side=RIGHT, padx=(12, 0))
+
         diag = ttk.LabelFrame(tools_tab, text=" Diagnostics & maintenance ", padding=12)
         self.advanced_diag = diag
         diag.pack(fill=X, pady=(10, 0))
@@ -677,6 +701,7 @@ class TertiumApp:
                 self.log_line(f"Detected Darktide at {detected}")
         self.refresh()
         self._refresh_crash_guard()
+        self.root.after(1800, lambda: self.check_self_update(announce=False))
         if self.api_key:
             nexus_name = str(self.config.get("nexus_name") or "account")
             self.api_label.set(f"Nexus: {nexus_name} · automatic + browser fallback")
@@ -1203,6 +1228,55 @@ class TertiumApp:
         if auto:
             lines.extend(["", "This welcome appears only on first run. You can reopen it with Getting Started."])
         messagebox.showinfo("Getting Started", "\n".join(lines))
+
+    def check_or_install_app_update(self) -> None:
+        release = self.available_app_release
+        if release and is_newer_version(release.version, APP_VERSION):
+            self.install_app_update(release)
+        else:
+            self.check_self_update(announce=True)
+
+    def check_self_update(self, announce: bool = True) -> None:
+        if self.worker_active:
+            if announce:
+                messagebox.showinfo("Tertium Update", "Tertium is busy with another task. Try the update check again when it finishes.")
+            return
+
+        def worker() -> None:
+            try:
+                release = fetch_latest_release()
+                self.queue.put(("self_update_checked", {"release": release, "announce": announce}))
+            except Exception as exc:
+                self.queue.put(("self_update_check_error", {"error": str(exc), "announce": announce}))
+
+        self._run_worker(worker, "Checking for Tertium update…")
+
+    def install_app_update(self, release: ReleaseInfo | None = None) -> None:
+        release = release or self.available_app_release
+        if release is None or not is_newer_version(release.version, APP_VERSION):
+            self.check_self_update(announce=True)
+            return
+        if os.name != "nt":
+            messagebox.showerror("Tertium Update", "Automatic self-update is currently supported only on Windows.")
+            return
+        if not messagebox.askyesno(
+            "Update Tertium",
+            f"Update Tertium v{APP_VERSION} to v{release.version}?\n\n"
+            "Tertium will download the official installer, verify SHA-256, close itself, install silently, and reopen automatically.",
+        ):
+            return
+
+        def worker() -> None:
+            target = update_cache_dir() / f"TertiumModManager-{release.version}-Setup-x64.exe"
+            download_installer(
+                release,
+                target,
+                lambda done, total: self.queue.put(("progress", (done, total))),
+            )
+            digest = verify_installer(target, release)
+            self.queue.put(("self_update_downloaded", {"release": release, "path": str(target), "sha256": digest}))
+
+        self._run_worker(worker, f"Downloading Tertium v{release.version}…")
 
     def choose_game_dir(self) -> None:
         path = filedialog.askdirectory(title="Choose Warhammer 40,000 DARKTIDE folder")
@@ -2667,6 +2741,56 @@ class TertiumApp:
                     self._begin_guided_updates(list(payload))
                 elif kind == "existing_link_ready":
                     self._finish_existing_mod_link(dict(payload or {}))
+                elif kind == "self_update_checked":
+                    info = dict(payload or {})
+                    release = info.get("release")
+                    announce = bool(info.get("announce"))
+                    if isinstance(release, ReleaseInfo):
+                        if is_newer_version(release.version, APP_VERSION):
+                            self.available_app_release = release
+                            self.app_update_text.set(f"UPDATE TERTIUM → v{release.version}")
+                            self.app_update_status.set(
+                                f"Tertium v{release.version} is available. The launcher can download, verify, install, and restart automatically."
+                            )
+                            if announce:
+                                if messagebox.askyesno(
+                                    "Tertium Update Available",
+                                    f"Tertium v{release.version} is available.\n\nInstall it now?",
+                                ):
+                                    self.root.after(100, lambda rel=release: self.install_app_update(rel))
+                        else:
+                            self.available_app_release = None
+                            self.app_update_text.set(f"Tertium v{APP_VERSION} · Check for Update")
+                            self.app_update_status.set(f"Tertium v{APP_VERSION} is current.")
+                            if announce:
+                                messagebox.showinfo("Tertium Update", f"Tertium v{APP_VERSION} is already current.")
+                elif kind == "self_update_check_error":
+                    info = dict(payload or {})
+                    error = str(info.get("error") or "Unknown update-check error.")
+                    self.app_update_status.set(f"Application update check unavailable: {error}")
+                    if info.get("announce"):
+                        if messagebox.askyesno(
+                            "Tertium Update",
+                            error + "\n\nOpen the Tertium Releases page in your browser?",
+                        ):
+                            webbrowser.open("https://github.com/Tangodwn/TertiumModManager/releases")
+                elif kind == "self_update_downloaded":
+                    info = dict(payload or {})
+                    release = info.get("release")
+                    path = Path(str(info.get("path") or ""))
+                    if not isinstance(release, ReleaseInfo) or not path.exists():
+                        messagebox.showerror("Tertium Update", "The verified update installer could not be prepared.")
+                    else:
+                        try:
+                            schedule_windows_installer(path)
+                            self.log_line(
+                                f"Verified Tertium v{release.version} update ({info.get('sha256')}); "
+                                "closing for silent installer handoff."
+                            )
+                            self.app_update_status.set(f"Installing Tertium v{release.version}…")
+                            self.root.after(300, self.root.destroy)
+                        except Exception as exc:
+                            messagebox.showerror("Tertium Update", str(exc))
                 elif kind == "auto_nexus_reconcile_complete":
                     report = dict(payload or {})
                     self.auto_nexus_reconcile_active = False
