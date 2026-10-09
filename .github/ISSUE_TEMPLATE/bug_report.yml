@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible Tertium problem
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Please remove secrets and review diagnostic logs before posting them publicly."
+  - type: input
+    id: version
+    attributes:
+      label: Tertium version
+      placeholder: 0.8.1
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Darktide Steam build ID
+      description: Available from Health Check or Diagnostics.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic notes
+      description: Attach a Tertium diagnostic ZIP if appropriate after reviewing it for personal/session information.
