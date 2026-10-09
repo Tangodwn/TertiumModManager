@@ -892,6 +892,38 @@ class TertiumApp:
             return dict(learned[0])
         return None
 
+    def _arm_crash_retest(self, logical_name: str) -> None:
+        """Allow an explicitly re-enabled mod to launch once against fresh evidence.
+
+        Existing crash logs are historical evidence. They must not immediately
+        re-disable a mod the user just re-enabled or updated. Only a crash that
+        occurs after this timestamp may auto-quarantine that mod again.
+        """
+        key = logical_name.strip().casefold()
+        if not key:
+            return
+        rows = dict(self.config.get("crash_retest_after") or {})
+        rows[key] = time.time()
+        self.config["crash_retest_after"] = rows
+        self._save_config()
+
+    def _crash_retest_cutoff(self, logical_name: str) -> float:
+        rows = self.config.get("crash_retest_after") or {}
+        if not isinstance(rows, dict):
+            return 0.0
+        try:
+            return float(rows.get(logical_name.strip().casefold()) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _clear_crash_retest(self, logical_name: str) -> None:
+        key = logical_name.strip().casefold()
+        rows = dict(self.config.get("crash_retest_after") or {})
+        if key in rows:
+            rows.pop(key, None)
+            self.config["crash_retest_after"] = rows
+            self._save_config()
+
     def _refresh_crash_guard(self) -> dict | None:
         if not self.game_dir or not validate_game_dir(self.game_dir)[0]:
             self.recent_crash_finding = None
@@ -931,6 +963,18 @@ class TertiumApp:
                     f"Crash Guard learned match: repeated error pattern maps to {learned.get('logical_name')} "
                     "for this Darktide build/mod version."
                 )
+
+        if candidate:
+            candidate_name = str(candidate.get("logical_name") or "")
+            retest_after = self._crash_retest_cutoff(candidate_name)
+            if retest_after and float(finding.get("mtime") or 0.0) <= retest_after:
+                self.recent_crash_finding = None
+                self.crash_notice_var.set(
+                    f"{candidate_name} was explicitly re-enabled for testing. "
+                    "The previous crash is being kept as history, but it will not disable the mod again unless a new crash occurs."
+                )
+                self._set_crash_guard_actions()
+                return None
 
         ignored = {str(x) for x in (self.config.get("dismissed_crash_signatures") or [])}
         if signature and signature in ignored and not candidate:
@@ -1006,6 +1050,7 @@ class TertiumApp:
             finding=finding,
             maintain_load_order=True,
         )
+        self._clear_crash_retest(logical_name)
         self._remember_handled_crash(finding)
         self.log_line(
             f"Crash Guard quarantined {logical_name} for Steam build {result.get('build_id') or 'unknown'} "
@@ -2695,11 +2740,11 @@ class TertiumApp:
             if not enabled_now:
                 reopened = self._undismiss_crash_signatures_for_mod(logical_name)
                 cleared = self.compatibility.clear_quarantine(logical_name)
-                if cleared or reopened:
-                    self.log_line(
-                        f"User re-enabled {logical_name}; cleared {cleared} quarantine flag(s) and "
-                        f"re-armed {reopened} prior crash signature(s) for testing."
-                    )
+                self._arm_crash_retest(logical_name)
+                self.log_line(
+                    f"User re-enabled {logical_name}; cleared {cleared} quarantine flag(s), "
+                    f"re-armed {reopened} prior crash signature(s), and armed a fresh-crash retest."
+                )
             sync_registry_folders(self.game_dir, self.store)
             self.log_line(f"{'Enabled' if not enabled_now else 'Disabled'} {new_name.lstrip('_')}")
             enabled = [
