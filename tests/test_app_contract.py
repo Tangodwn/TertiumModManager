@@ -76,3 +76,13 @@ def test_crash_guard_exposes_delete_suspect_action():
     assert "self.store.remove_mod" in method
     assert "self.compatibility.clear_quarantine" in method
     assert "write_mod_load_order(self.game_dir, enabled)" in method
+
+
+def test_mod_install_always_updates_load_order():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    method = source[source.index("    def _install_record_archive"):source.index("    def _reapply_aml_if_cached")]
+    assert "self.store.get(AML_MOD_ID) is None" not in method
+    assert 'if record.mod_id not in {DMF_MOD_ID, AML_MOD_ID}:' in method
+    assert 'write_mod_load_order(self.game_dir, enabled)' in method
+    assert 'Updated mod_load_order.txt' in method
