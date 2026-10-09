@@ -1,2 +1,2 @@
-__version__ = "0.8.9"
-RELEASE_NAME = "One-Stop Launch"
+__version__ = "0.8.10"
+RELEASE_NAME = "Public Update Channel"
