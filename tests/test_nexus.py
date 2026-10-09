@@ -53,3 +53,13 @@ def test_download_file_removes_partial_on_failure(monkeypatch):
             raise AssertionError("failed download should raise")
         assert not dest.exists()
         assert not (Path(td) / "mod.zip.part").exists()
+
+
+def test_browser_authorization_required_detects_nexus_permission_fallback():
+    assert nexus.browser_authorization_required(
+        RuntimeError("Nexus requires browser authorization for this download.")
+    )
+    assert nexus.browser_authorization_required(
+        RuntimeError("Click Mod Manager Download so the nxm:// link includes a temporary authorization key.")
+    )
+    assert not nexus.browser_authorization_required(RuntimeError("network cable unplugged"))
