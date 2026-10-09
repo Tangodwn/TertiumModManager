@@ -2,8 +2,8 @@
 
 Tertium is a free, unofficial Windows mod manager and launcher for **Warhammer 40,000: Darktide**.
 
-Current version: **0.8.4**  
-Current development baseline: **v0.8.4 — Guardian Release Automation**
+Current version: **0.8.5**  
+Current development baseline: **v0.8.5 — Guardian Recovery**
 
 ## Goals
 
@@ -14,9 +14,9 @@ Tertium is designed around a simple default experience:
 - **UPDATE ALL**
 - automatic Darktide loader repair after game updates
 - automatic adoption of already-installed mods
-- crash analysis and build-aware mod quarantine
+- crash analysis, one-click suspect quarantine/retry, and build-aware mod quarantine
 - profiles, backup/rollback, diagnostics, and troubleshooting tools behind **Advanced Mode**
-- Nexus integration without mirroring or rehosting mod files
+- Nexus updates that try automatic download first and fall back to browser authorization only when required
 
 Tertium is intended to remain completely free. There are no paid tiers, subscriptions, or artificially gated features.
 
