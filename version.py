@@ -1,2 +1,2 @@
-__version__ = "0.8.18"
-RELEASE_NAME = "Quarantine Control"
+__version__ = "0.8.19"
+RELEASE_NAME = "Crash Learning"
