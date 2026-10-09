@@ -1,2 +1,2 @@
-__version__ = "0.8.14"
-RELEASE_NAME = "In-App Package Updates"
+__version__ = "0.8.15"
+RELEASE_NAME = "Free Nexus Guided Updates"
