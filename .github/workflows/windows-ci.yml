@@ -27,3 +27,23 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest -q
+
+
+  build-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install build dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      - name: Build Windows application smoke test
+        run: python -m PyInstaller --noconfirm --clean TertiumModManager.spec
+      - name: Verify application output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/TertiumModManager/TertiumModManager.exe")) {
+            throw "PyInstaller did not produce TertiumModManager.exe."
+          }
