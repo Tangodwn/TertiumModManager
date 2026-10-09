@@ -1,4 +1,4 @@
-TERTIUM MOD MANAGER 0.8.10 — PUBLIC UPDATE CHANNEL
+TERTIUM MOD MANAGER 0.8.11 — BROWSER-FREE UPDATES
 
 NORMAL USERS (published binary release)
 1. Download and run TertiumModManager-Setup-x64.exe.
@@ -12,4 +12,4 @@ Double-click MAKE_WINDOWS_INSTALLER.cmd on Windows for the streamlined path. It 
 
 Developers who also want the optional portable ZIP can use MAKE_WINDOWS_RELEASE.cmd instead.
 
-Once the canonical GitHub repository is connected, a version tag matching VERSION (for example v0.8.10) will build and publish the verified Windows installer automatically on a real Windows runner.
+Once the canonical GitHub repository is connected, a version tag matching VERSION (for example v0.8.11) will build and publish the verified Windows installer automatically on a real Windows runner.
