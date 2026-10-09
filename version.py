@@ -1,2 +1,2 @@
-__version__ = "0.8.4"
-RELEASE_NAME = "Guardian Release Automation"
+__version__ = "0.8.5"
+RELEASE_NAME = "Guardian Recovery"

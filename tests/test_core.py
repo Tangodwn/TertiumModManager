@@ -828,6 +828,8 @@ def test_guardian_ui_command_methods_exist():
         "_open_official_news",
         "_refresh_crash_guard",
         "disable_crash_suspect_and_retry",
+        "launch_crash_anyway",
+        "show_crash_guard_details",
         "dismiss_crash_notice",
         "adopt_existing_mods",
         "open_nexus_catalog",
@@ -1045,3 +1047,23 @@ def test_github_windows_ci_and_release_workflows_are_present():
     # Normal release assets deliberately exclude the portable ZIP.
     publish = release[release.index("Publish GitHub release assets"):]
     assert "Portable-x64.zip" not in publish
+
+
+def test_guardian_recovery_and_nexus_fallback_source_contract():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert 'text="Launch Anyway"' in source
+    assert 'text="Advanced Details"' in source
+    assert 'def repair_and_launch(self, skip_crash_guard: bool = False)' in source
+    retry = source[source.index("def disable_crash_suspect_and_retry"):source.index("def launch_crash_anyway")]
+    assert "askyesno" not in retry
+    assert "skip_crash_guard=True" in retry
+
+    update = source[source.index("def update_all"):source.index("def _collect_guided_updates_worker")]
+    assert "nexus_is_premium" not in update
+    assert "_update_all_worker" in update
+
+    worker = source[source.index("def _update_all_worker"):source.index("def save_profile")]
+    assert "browser_authorization_required" in worker
+    assert 'self.queue.put(("guided_updates", remaining))' in worker
+    assert "Run Update All again" not in worker

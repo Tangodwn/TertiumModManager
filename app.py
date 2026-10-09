@@ -70,7 +70,7 @@ from core import (
     verify_cached_archive,
     write_mod_load_order,
 )
-from nexus import NexusClient, NxmLink, choose_mirror, download_file, parse_nxm_url
+from nexus import NexusClient, NxmLink, browser_authorization_required, choose_mirror, download_file, parse_nxm_url
 from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_official_news
 from winutil import protect_secret, register_nxm_protocol, unprotect_secret
 from version import __version__, RELEASE_NAME
@@ -373,7 +373,12 @@ class TertiumApp:
         self.disable_retry_button = ttk.Button(crash_actions, text="Disable Suspect & Retry", command=self.disable_crash_suspect_and_retry)
         self.disable_retry_button.pack(side=LEFT, padx=(0, 6))
         self.disable_retry_button.state(["disabled"])
-        ttk.Button(crash_actions, text="Dismiss", command=self.dismiss_crash_notice).pack(side=LEFT)
+        self.launch_anyway_button = ttk.Button(crash_actions, text="Launch Anyway", command=self.launch_crash_anyway)
+        self.launch_anyway_button.pack(side=LEFT, padx=(0, 6))
+        self.launch_anyway_button.state(["disabled"])
+        self.crash_details_button = ttk.Button(crash_actions, text="Advanced Details", command=self.show_crash_guard_details)
+        self.crash_details_button.pack(side=LEFT)
+        self.crash_details_button.state(["disabled"])
         ttk.Label(crash_actions, textvariable=self.quarantine_text).pack(side=RIGHT)
 
         news_card = ttk.LabelFrame(action_side, text=" Official Darktide Updates ", padding=10)
@@ -656,9 +661,7 @@ class TertiumApp:
         self._refresh_crash_guard()
         if self.api_key:
             nexus_name = str(self.config.get("nexus_name") or "account")
-            direct = self.config.get("nexus_is_premium")
-            mode = "direct downloads enabled" if direct is True else ("browser-assisted downloads" if direct is False else "API key configured")
-            self.api_label.set(f"Nexus: {nexus_name} · {mode}")
+            self.api_label.set(f"Nexus: {nexus_name} · automatic + browser fallback")
         if not self.config.get("welcome_seen"):
             self.config["welcome_seen"] = True
             self._save_config()
@@ -775,15 +778,35 @@ class TertiumApp:
         candidates = finding.get("candidates") or []
         return dict(candidates[0]) if candidates and isinstance(candidates[0], dict) else None
 
+    def _set_crash_guard_actions(
+        self,
+        candidate: dict | None = None,
+        finding: dict | None = None,
+        quarantined: bool = False,
+    ) -> None:
+        name = str((candidate or {}).get("logical_name") or "")
+        confidence = str((candidate or {}).get("confidence") or "").lower()
+        try:
+            self.disable_retry_button.config(text=f"Disable {name} & Retry" if name else "Disable Suspect & Retry")
+            if candidate and confidence == "high" and not quarantined:
+                self.disable_retry_button.state(["!disabled"])
+            else:
+                self.disable_retry_button.state(["disabled"])
+            if finding:
+                self.launch_anyway_button.state(["!disabled"])
+                self.crash_details_button.state(["!disabled"])
+            else:
+                self.launch_anyway_button.state(["disabled"])
+                self.crash_details_button.state(["disabled"])
+        except Exception:
+            pass
+
     def _refresh_crash_guard(self) -> dict | None:
         if not self.game_dir or not validate_game_dir(self.game_dir)[0]:
             self.recent_crash_finding = None
             self.crash_notice_var.set("No recent mod-specific crash detected.")
             self.quarantine_text.set("No active quarantines")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         quarantines = active_quarantines(self.game_dir, self.compatibility)
@@ -794,10 +817,7 @@ class TertiumApp:
         if not finding:
             self.recent_crash_finding = None
             self.crash_notice_var.set("Last Darktide session did not expose a mod-specific crash.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         # Do not blame mods for a crash from a deliberately vanilla session.
@@ -806,10 +826,7 @@ class TertiumApp:
         if last_mode == "vanilla" and float(finding.get("mtime") or 0.0) >= max(0.0, last_vanilla - 30.0):
             self.recent_crash_finding = None
             self.crash_notice_var.set("Most recent crash was from a vanilla launch; no mod was quarantined.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         signature = str(finding.get("signature") or "")
@@ -817,40 +834,52 @@ class TertiumApp:
         if signature and signature in ignored:
             self.recent_crash_finding = None
             self.crash_notice_var.set("Previous crash notice dismissed. No new mod-specific crash detected.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         candidate = self._primary_crash_candidate(finding)
         self.recent_crash_finding = finding
         if candidate:
             name = str(candidate.get("logical_name") or "Unknown mod")
-            confidence = str(candidate.get("confidence") or "low")
+            confidence = str(candidate.get("confidence") or "low").lower()
             build = read_steam_build_id(self.game_dir)
-            version = next((str(m.get("version") or "") for m in scan_installed_mods(self.game_dir) if str(m.get("logical_name") or "").lower() == name.lower()), "")
+            version = next(
+                (
+                    str(m.get("version") or "")
+                    for m in scan_installed_mods(self.game_dir)
+                    if str(m.get("logical_name") or "").lower() == name.lower()
+                ),
+                "",
+            )
             if signature:
-                self.compatibility.record_crash(name, build, version, signature, str(finding.get("error") or ""), str(finding.get("log_name") or ""))
+                self.compatibility.record_crash(
+                    name,
+                    build,
+                    version,
+                    signature,
+                    str(finding.get("error") or ""),
+                    str(finding.get("log_name") or ""),
+                )
             active_names = {str(q.get("logical_name") or "").lower() for q in quarantines}
-            if name.lower() in active_names:
-                self.crash_notice_var.set(f"{name} is quarantined for this Darktide build/mod version after a recent crash.")
-                try:
-                    self.disable_retry_button.state(["disabled"])
-                except Exception:
-                    pass
+            quarantined = name.lower() in active_names
+            if quarantined:
+                self.crash_notice_var.set(
+                    f"{name} is quarantined for this Darktide build/mod version after a recent crash."
+                )
+            elif confidence == "high":
+                self.crash_notice_var.set(
+                    f"Darktide crashed during the last modded session. {name} appears in the crash stack and is the likely cause."
+                )
             else:
-                self.crash_notice_var.set(f"Last crash suspect: {name} ({confidence} confidence). Tertium found it in the newest crash stack.")
-                try:
-                    self.disable_retry_button.state(["!disabled"])
-                except Exception:
-                    pass
+                self.crash_notice_var.set(
+                    f"Darktide crashed. {name} is a {confidence}-confidence suspect; review details before disabling it."
+                )
+            self._set_crash_guard_actions(candidate, finding, quarantined=quarantined)
         else:
-            self.crash_notice_var.set("Darktide crashed, but Tertium could not identify a specific mod from the stack.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self.crash_notice_var.set(
+                "Darktide crashed, but Tertium could not identify a specific mod from the stack."
+            )
+            self._set_crash_guard_actions(None, finding)
         return finding
 
     def _remember_handled_crash(self, finding: dict | None) -> None:
@@ -886,29 +915,77 @@ class TertiumApp:
         if not candidate:
             messagebox.showinfo("Crash Guard", "Tertium does not currently have a specific mod suspect to disable.")
             return
+        if str(candidate.get("confidence") or "").lower() != "high":
+            messagebox.showinfo(
+                "Crash Guard",
+                "The newest crash does not contain enough direct stack evidence for one-click quarantine. "
+                "Use Advanced Details before changing the mod setup.",
+            )
+            return
         name = str(candidate.get("logical_name") or "")
         if not name:
-            return
-        if not messagebox.askyesno(
-            "Disable suspect & retry",
-            f"Disable {name} and quarantine this exact mod version for the current Darktide build, then launch modded?",
-        ):
             return
         try:
             self._quarantine_candidate(name, finding)
         except Exception as exc:
             messagebox.showerror("Crash Guard", str(exc))
             return
-        self.repair_and_launch()
+        self.log_line(f"Crash Guard retry: launching modded with {name} disabled.")
+        self.repair_and_launch(skip_crash_guard=True)
+
+    def launch_crash_anyway(self) -> None:
+        finding = self.recent_crash_finding or self._refresh_crash_guard()
+        if not finding:
+            self.repair_and_launch(skip_crash_guard=True)
+            return
+        candidate = self._primary_crash_candidate(finding)
+        name = str((candidate or {}).get("logical_name") or "")
+        self._remember_handled_crash(finding)
+        self.recent_crash_finding = None
+        self._set_crash_guard_actions()
+        self.log_line(
+            "Crash Guard override: launching the current modded setup anyway"
+            + (f" despite suspect {name}." if name else ".")
+        )
+        self.repair_and_launch(skip_crash_guard=True)
+
+    def show_crash_guard_details(self) -> None:
+        finding = self.recent_crash_finding or self._refresh_crash_guard()
+        if not finding:
+            messagebox.showinfo("Crash Guard details", "No current crash finding is available.")
+            return
+        self.mode_var.set("advanced")
+        try:
+            self.notebook.select(self.tools_tab)
+        except Exception:
+            pass
+        candidates = finding.get("candidates") or []
+        candidate_lines = []
+        for item in candidates[:5]:
+            if not isinstance(item, dict):
+                continue
+            candidate_lines.append(
+                f"- {item.get('logical_name') or 'Unknown'}: {item.get('confidence') or 'unknown'} "
+                f"confidence (score {item.get('score') or 0})"
+            )
+        body = [
+            f"Log: {finding.get('log_name') or 'unknown'}",
+            "",
+            "Error:",
+            str(finding.get("error") or "No script error text captured."),
+            "",
+            "Mod candidates:",
+            *(candidate_lines or ["- No specific mod identified"]),
+            "",
+            "Advanced Mode is now open for Health Check, diagnostics, and recovery tools.",
+        ]
+        messagebox.showinfo("Crash Guard details", "\n".join(body))
 
     def dismiss_crash_notice(self) -> None:
         self._remember_handled_crash(self.recent_crash_finding)
         self.recent_crash_finding = None
         self.crash_notice_var.set("Crash notice dismissed. Tertium will alert you again for a new crash signature.")
-        try:
-            self.disable_retry_button.state(["disabled"])
-        except Exception:
-            pass
+        self._set_crash_guard_actions()
 
     def _poll_game_session(self) -> None:
         try:
@@ -1137,9 +1214,11 @@ class TertiumApp:
         self.config["nexus_name"] = str(name)
         self.config["nexus_is_premium"] = bool(data.get("is_premium", False))
         self._save_config()
-        mode = "direct downloads enabled" if self.config["nexus_is_premium"] else "browser-assisted downloads"
-        self.api_label.set(f"Nexus: {name} · {mode}")
-        self.log_line(f"Nexus API key validated for {name}; {mode}.")
+        self.api_label.set(f"Nexus: {name} · automatic + browser fallback")
+        self.log_line(
+            f"Nexus API key validated for {name}; Tertium will try automatic downloads first "
+            "and fall back to nxm:// browser authorization only when Nexus requires it."
+        )
 
     def register_nxm(self) -> None:
         try:
@@ -1390,10 +1469,10 @@ class TertiumApp:
         for rec, succ in updates:
             lines.append(f"{rec.name}: {rec.version or rec.file_id} → {succ.get('version') or succ.get('file_id')}")
         self.queue.put(("updates", updates))
-        if self.config.get("nexus_is_premium") is True:
-            note = "Update All can download and install these automatically."
-        else:
-            note = "Update All will guide the Nexus authorization clicks and handle each install automatically."
+        note = (
+            "Update All will try automatic download first and fall back to Nexus browser authorization "
+            "only for files that require it."
+        )
         if local_only:
             note += f"\n\n{len(local_only)} local-only mod(s) are not Nexus-linked yet."
         self.queue.put(("message", ("info", "Updates available", "\n".join(lines) + "\n\n" + note)))
@@ -1404,7 +1483,7 @@ class TertiumApp:
             return
         self._run_worker(lambda: self._repair_worker(False), "Repairing Darktide after update…")
 
-    def repair_and_launch(self) -> None:
+    def repair_and_launch(self, skip_crash_guard: bool = False) -> None:
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
             return
@@ -1416,10 +1495,11 @@ class TertiumApp:
             return
 
         # If the newest session produced a high-confidence mod stack, offer the
-        # one-click recovery path before launching the exact same setup again.
-        finding = self._refresh_crash_guard()
+        # recovery path before launching the exact same setup again. Explicit
+        # Crash Guard actions pass skip_crash_guard=True so they never prompt twice.
+        finding = None if skip_crash_guard else self._refresh_crash_guard()
         candidate = self._primary_crash_candidate(finding)
-        if candidate and candidate.get("confidence") == "high":
+        if not skip_crash_guard and candidate and candidate.get("confidence") == "high":
             name = str(candidate.get("logical_name") or "the suspected mod")
             choice = messagebox.askyesnocancel(
                 "Crash Guard",
@@ -1480,24 +1560,15 @@ class TertiumApp:
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
             return
-        if self.config.get("nexus_is_premium") is True:
-            if not messagebox.askyesno(
-                "Update all tracked mods",
-                "Tertium will check every tracked Nexus mod, create a protected state snapshot, then download and install available updates automatically.\n\n"
-                "Core framework updates can occasionally require updates to individual mods. Continue?",
-            ):
-                return
-            self._run_worker(self._update_all_worker, "Finding and installing Nexus updates…")
-            return
-
         if not messagebox.askyesno(
             "Update all tracked mods",
-            "Your Nexus account requires browser authorization for file downloads.\n\n"
-            "Tertium will find the updates, open one Nexus file page at a time, and wait for you to click Mod Manager Download. "
-            "After each click, Tertium will download/install that update and automatically advance to the next one.\n\nContinue?",
+            "Tertium will check every tracked Nexus mod and create a protected state snapshot before changing anything.\n\n"
+            "For each update, Tertium will try the automatic Nexus download path first. If Nexus requires browser "
+            "authorization, Tertium will open that file page and wait for one Mod Manager Download click, then continue automatically.\n\n"
+            "Continue?",
         ):
             return
-        self._run_worker(self._collect_guided_updates_worker, "Finding Nexus updates…")
+        self._run_worker(self._update_all_worker, "Finding and installing Nexus updates…")
 
     def _collect_guided_updates_worker(self) -> None:
         client = NexusClient(self.api_key)
@@ -1541,10 +1612,10 @@ class TertiumApp:
         if not updates:
             return
         messagebox.showinfo(
-            "Update All",
-            f"Found {len(updates)} update(s).\n\n"
-            "Tertium will open each Nexus page in order. Click Mod Manager Download on that page. "
-            "Tertium will receive the NXM link, install the update, and move to the next mod automatically.",
+            "Update All — Nexus authorization",
+            f"{len(updates)} remaining update(s) require Nexus browser authorization.\n\n"
+            "Tertium will open each required Nexus page in order. Click Mod Manager Download once on that page; "
+            "Tertium will receive the NXM link, install the update, and automatically continue.",
         )
         self._open_next_guided_update()
 
@@ -1608,11 +1679,15 @@ class TertiumApp:
             try:
                 urls = client.direct_download_urls(old.mod_id, new_file_id)
             except ModManagerError as exc:
-                if "403" in str(exc) or "free Nexus account" in str(exc):
-                    raise ModManagerError(
-                        "Nexus did not grant direct download access for this account. "
-                        "Run Update All again and Tertium will use the browser-assisted authorization workflow."
-                    ) from exc
+                if browser_authorization_required(exc):
+                    remaining = updates[idx - 1:]
+                    self.queue.put((
+                        "log",
+                        f"Nexus requires browser authorization for {old.name}; switching the remaining "
+                        f"{len(remaining)} update(s) to guided authorization automatically.",
+                    ))
+                    self.queue.put(("guided_updates", remaining))
+                    return
                 raise
             file_name = str(successor.get("file_name") or f"{old.mod_id}-{new_file_id}.zip")
             cache = self.store.cache_archive_path(old.mod_id, new_file_id, file_name)
