@@ -1,2 +1,2 @@
-__version__ = "0.8.21"
-RELEASE_NAME = "Auto Load Order"
+__version__ = "0.8.22"
+RELEASE_NAME = "Crash Retest Control"
