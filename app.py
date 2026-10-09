@@ -86,12 +86,12 @@ from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_officia
 from self_update import (
     ReleaseInfo,
     SelfUpdateError,
-    download_installer,
+    download_update_package,
     fetch_latest_release,
     is_newer_version,
-    schedule_windows_installer,
+    schedule_windows_package_update,
     update_cache_dir,
-    verify_installer,
+    verify_update_package,
 )
 from winutil import protect_secret, register_nxm_protocol, unprotect_secret
 from version import __version__, RELEASE_NAME
@@ -1296,18 +1296,18 @@ class TertiumApp:
         if not messagebox.askyesno(
             "Update Tertium",
             f"Update Tertium v{APP_VERSION} to v{release.version}?\n\n"
-            "Tertium will download the official installer, verify SHA-256, close itself, install silently, and reopen automatically.",
+            "Tertium will download the verified GitHub update package, close itself, replace its application files, and reopen automatically. No installer window is used.",
         ):
             return
 
         def worker() -> None:
-            target = update_cache_dir() / f"TertiumModManager-{release.version}-Setup-x64.exe"
-            download_installer(
+            target = update_cache_dir() / release.package_name
+            download_update_package(
                 release,
                 target,
                 lambda done, total: self.queue.put(("progress", (done, total))),
             )
-            digest = verify_installer(target, release)
+            digest = verify_update_package(target, release)
             self.queue.put(("self_update_downloaded", {"release": release, "path": str(target), "sha256": digest}))
 
         self._run_worker(worker, f"Downloading Tertium v{release.version}…")
@@ -2834,15 +2834,15 @@ class TertiumApp:
                     release = info.get("release")
                     path = Path(str(info.get("path") or ""))
                     if not isinstance(release, ReleaseInfo) or not path.exists():
-                        messagebox.showerror("Tertium Update", "The verified update installer could not be prepared.")
+                        messagebox.showerror("Tertium Update", "The verified update package could not be prepared.")
                     else:
                         try:
-                            schedule_windows_installer(path)
+                            schedule_windows_package_update(path)
                             self.log_line(
                                 f"Verified Tertium v{release.version} update ({info.get('sha256')}); "
-                                "closing for silent installer handoff."
+                                "closing for in-place package update."
                             )
-                            self.app_update_status.set(f"Installing Tertium v{release.version}…")
+                            self.app_update_status.set(f"Applying Tertium v{release.version}…")
                             self.root.after(300, self.root.destroy)
                         except Exception as exc:
                             messagebox.showerror("Tertium Update", str(exc))
