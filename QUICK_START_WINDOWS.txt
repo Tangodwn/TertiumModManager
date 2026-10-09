@@ -1,0 +1,15 @@
+TERTIUM MOD MANAGER 0.8.4 — GUARDIAN RELEASE AUTOMATION
+
+NORMAL USERS (published binary release)
+1. Download and run TertiumModManager-Setup-x64.exe.
+2. Launch Tertium Mod Manager from Start Menu.
+3. Run Health Check before making changes to an existing Darktide setup.
+
+No Python installation is required to run the installed application.
+
+SOURCE/DEVELOPER PACKAGE
+Double-click MAKE_WINDOWS_INSTALLER.cmd on Windows for the streamlined path. It runs the tests, builds the native application, creates only the Windows installer plus SHA-256 checksum, and opens the release folder automatically.
+
+Developers who also want the optional portable ZIP can use MAKE_WINDOWS_RELEASE.cmd instead.
+
+Once the canonical GitHub repository is connected, a version tag matching VERSION (for example v0.8.4) will build and publish the verified Windows installer automatically on a real Windows runner.
