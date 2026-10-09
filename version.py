@@ -1,2 +1,2 @@
-__version__ = "0.8.8"
-RELEASE_NAME = "Guardian Self-Update"
+__version__ = "0.8.9"
+RELEASE_NAME = "One-Stop Launch"
