@@ -2427,14 +2427,22 @@ def reconcile_installed_registry(game_dir: Path, store: RegistryStore) -> dict[s
 
 
 def modded_launch_preflight(game_dir: Path, store: RegistryStore) -> dict[str, Any]:
-    """Run fast, local-only checks before a modded launch.
+    """Prepare and validate the local mod state before a modded launch.
 
-    The preflight does not contact Nexus and does not rewrite custom load order.
-    It automatically reconciles locally installed mods, then blocks only on
-    high-confidence structural/dependency errors that are likely to produce a
-    broken or misleading launch. Warnings remain advisory.
+    Tertium is authoritative for the enabled/disabled state. Every PLAY MODDED
+    launch rewrites mod_load_order.txt from the enabled folders while preserving
+    the user's existing relative order and comments where possible. This keeps a
+    valid manual fallback even when AML is absent, stale, or cannot be verified.
+    The preflight never contacts Nexus.
     """
     reconcile = reconcile_installed_registry(game_dir, store)
+    enabled_logical_names = [
+        item["logical_name"]
+        for item in scan_installed_mods(game_dir)
+        if item["enabled"] and item["logical_name"].casefold() not in {"dmf", "base"}
+    ]
+    write_mod_load_order(game_dir, enabled_logical_names)
+    sync_registry_folders(game_dir, store)
     aml_active = bool(store.get(AML_MOD_ID) and cached_aml_patch_state(game_dir, store) is True)
     structure = audit_mod_structure(game_dir)
     dependencies = audit_mod_dependencies(game_dir, aml_active=aml_active)
@@ -2464,6 +2472,8 @@ def modded_launch_preflight(game_dir: Path, store: RegistryStore) -> dict[str, A
         "blockers": blockers,
         "warnings": warnings,
         "aml_active": aml_active,
+        "load_order_managed_by_tertium": True,
+        "load_order_entries": enabled_logical_names,
     }
 
 
