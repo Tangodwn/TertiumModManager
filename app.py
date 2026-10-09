@@ -1443,7 +1443,7 @@ class TertiumApp:
         if not sel:
             messagebox.showinfo(
                 "Link existing mod",
-                "Select one of the local-only mods marked 'Link Nexus', then click Link Existing to Nexus.",
+                "Automatic linking handles normal cases. In Advanced Mode, select an unresolved local-only mod and use Link Selected Manually only as a fallback.",
             )
             return
         values = self.tree.item(sel[0], "values")
@@ -1812,7 +1812,7 @@ class TertiumApp:
             self.queue.put((
                 "log",
                 f"{len(local_only)} adopted local-only mod(s) are not Nexus-linked yet. "
-                "Tertium will link a matching local mod automatically the next time it is installed/updated through Nexus.",
+                "Tertium will automatically reconcile exact mod-name matches against the connected Nexus catalog.",
             ))
         for idx, rec in enumerate(records, 1):
             self.queue.put(("status", f"Checking {idx}/{len(records)}: {rec.name}"))
@@ -1827,8 +1827,8 @@ class TertiumApp:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
                 body += (
-                    f"\n\n{len(local_only)} installed mod(s) are currently local-only. "
-                    "Tertium does not guess Nexus IDs; they will become update-managed automatically after a matching Nexus install/download."
+                    f"\n\n{len(local_only)} installed mod(s) are still local-only. "
+                    "Tertium auto-links only unique verified Nexus catalog matches; unresolved names are left untouched rather than guessed."
                 )
             self.queue.put(("message", ("info", "Updates", body)))
             return
@@ -1957,7 +1957,8 @@ class TertiumApp:
         if not updates:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
-                body += f"\n\n{len(local_only)} local-only mod(s) will be linked automatically after a matching Nexus install/download."
+                body += f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
+                    "Use Auto-Link Existing to retry catalog reconciliation; only unusual names should need the Advanced manual fallback."
             self.queue.put(("message", ("info", "Updates", body)))
             return
         priority = {DML_MOD_ID: 0, DMF_MOD_ID: 1, AML_MOD_ID: 2}
@@ -2028,7 +2029,8 @@ class TertiumApp:
         if not updates:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
-                body += f"\n\n{len(local_only)} local-only mod(s) will be linked automatically after a matching Nexus install/download."
+                body += f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
+                    "Use Auto-Link Existing to retry catalog reconciliation; only unusual names should need the Advanced manual fallback."
             self.queue.put(("message", ("info", "Updates", body)))
             return
         priority = {DML_MOD_ID: 0, DMF_MOD_ID: 1, AML_MOD_ID: 2}
