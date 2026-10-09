@@ -79,8 +79,8 @@ class NexusClient:
                 body = exc.read().decode("utf-8", errors="replace")
                 if exc.code == 403:
                     raise ModManagerError(
-                        "Nexus returned 403. For a free Nexus account, start the download on the Nexus website "
-                        "with the Mod Manager Download button so the nxm:// link includes a temporary key."
+                        "Nexus requires browser authorization for this download. "
+                        "Open the Nexus file page and click Mod Manager Download so Tertium receives an nxm:// link with a temporary authorization key."
                     ) from exc
                 if exc.code in {429, 500, 502, 503, 504} and attempt < 2:
                     last_error = exc
@@ -218,3 +218,16 @@ def choose_mirror(entries: list[dict[str, Any]]) -> str:
         if uri:
             return str(uri)
     raise ModManagerError("Nexus returned download mirrors without a usable URI.")
+
+
+def browser_authorization_required(exc: BaseException) -> bool:
+    """Return True when a Nexus download failure should fall back to nxm:// browser authorization."""
+    text = str(exc).casefold()
+    markers = (
+        "requires browser authorization",
+        "nexus returned 403",
+        "temporary authorization key",
+        "temporary key",
+        "mod manager download",
+    )
+    return any(marker in text for marker in markers)
