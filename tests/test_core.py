@@ -1133,3 +1133,48 @@ def test_existing_mod_linker_ui_contract():
     assert "pending_existing_link_local_id" in source
     assert "LINK ONLY" in source
     assert "link_local_record_to_nexus" in source
+
+
+def test_link_local_record_to_nexus_allows_unknown_file_baseline():
+    from core import ModRecord, RegistryStore, link_local_record_to_nexus
+    with tempfile.TemporaryDirectory() as td:
+        store = RegistryStore(Path(td))
+        store.upsert(ModRecord(
+            mod_id=-50,
+            file_id=0,
+            name="animation_events",
+            version="",
+            folders=["animation_events"],
+            enabled=True,
+            installed_at=50.0,
+            source="local",
+        ))
+        linked = link_local_record_to_nexus(
+            store,
+            -50,
+            500,
+            {"name": "Animation Events"},
+            {},
+        )
+        assert linked.mod_id == 500
+        assert linked.file_id == 0
+        assert linked.name == "Animation Events"
+        assert linked.folders == ["animation_events"]
+        assert linked.enabled is True
+        assert store.get(-50) is None
+        assert store.get(500).source == "nexus"
+
+
+def test_auto_nexus_reconciliation_source_contract():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "Auto-Link Existing" in source
+    assert "def _start_auto_nexus_reconcile" in source
+    assert "def _auto_nexus_reconcile_worker" in source
+    assert "unique_catalog_match" in source
+    assert "game_mod_catalog" in (root / "nexus.py").read_text(encoding="utf-8")
+    assert "nexus-catalog-" in source
+    assert "24 * 60 * 60" in source
+    # Manual linking remains a fallback, not the normal simple-mode workflow.
+    simple_block = source[source.index("if simple:"):source.index("else:", source.index("if simple:"))]
+    assert "self.manual_link_button.pack_forget()" in simple_block
