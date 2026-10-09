@@ -64,3 +64,15 @@ def test_reenabled_quarantine_rearms_crash_detection():
     assert "learned-crash-signature" in refresh
     toggle = source[source.index("    def toggle_selected"):source.index("    def rollback_selected_update")]
     assert "_undismiss_crash_signatures_for_mod(logical_name)" in toggle
+
+
+def test_crash_guard_exposes_delete_suspect_action():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert 'text="Delete Suspect"' in source
+    assert "def delete_crash_suspect" in source
+    method = source[source.index("    def delete_crash_suspect"):source.index("    def launch_crash_anyway")]
+    assert "quarantine_mod_folder" in method
+    assert "self.store.remove_mod" in method
+    assert "self.compatibility.clear_quarantine" in method
+    assert "write_mod_load_order(self.game_dir, enabled)" in method
