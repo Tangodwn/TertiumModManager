@@ -70,7 +70,7 @@ from core import (
     verify_cached_archive,
     write_mod_load_order,
 )
-from nexus import NexusClient, NxmLink, choose_mirror, download_file, parse_nxm_url
+from nexus import NexusClient, NxmLink, browser_authorization_required, choose_mirror, download_file, parse_nxm_url
 from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_official_news
 from winutil import protect_secret, register_nxm_protocol, unprotect_secret
 from version import __version__, RELEASE_NAME
@@ -373,7 +373,12 @@ class TertiumApp:
         self.disable_retry_button = ttk.Button(crash_actions, text="Disable Suspect & Retry", command=self.disable_crash_suspect_and_retry)
         self.disable_retry_button.pack(side=LEFT, padx=(0, 6))
         self.disable_retry_button.state(["disabled"])
-        ttk.Button(crash_actions, text="Dismiss", command=self.dismiss_crash_notice).pack(side=LEFT)
+        self.launch_anyway_button = ttk.Button(crash_actions, text="Launch Anyway", command=self.launch_crash_anyway)
+        self.launch_anyway_button.pack(side=LEFT, padx=(0, 6))
+        self.launch_anyway_button.state(["disabled"])
+        self.crash_details_button = ttk.Button(crash_actions, text="Advanced Details", command=self.show_crash_guard_details)
+        self.crash_details_button.pack(side=LEFT)
+        self.crash_details_button.state(["disabled"])
         ttk.Label(crash_actions, textvariable=self.quarantine_text).pack(side=RIGHT)
 
         news_card = ttk.LabelFrame(action_side, text=" Official Darktide Updates ", padding=10)
@@ -656,9 +661,7 @@ class TertiumApp:
         self._refresh_crash_guard()
         if self.api_key:
             nexus_name = str(self.config.get("nexus_name") or "account")
-            direct = self.config.get("nexus_is_premium")
-            mode = "direct downloads enabled" if direct is True else ("browser-assisted downloads" if direct is False else "API key configured")
-            self.api_label.set(f"Nexus: {nexus_name} · {mode}")
+            self.api_label.set(f"Nexus: {nexus_name} · automatic + browser fallback")
         if not self.config.get("welcome_seen"):
             self.config["welcome_seen"] = True
             self._save_config()
@@ -1137,9 +1140,11 @@ class TertiumApp:
         self.config["nexus_name"] = str(name)
         self.config["nexus_is_premium"] = bool(data.get("is_premium", False))
         self._save_config()
-        mode = "direct downloads enabled" if self.config["nexus_is_premium"] else "browser-assisted downloads"
-        self.api_label.set(f"Nexus: {name} · {mode}")
-        self.log_line(f"Nexus API key validated for {name}; {mode}.")
+        self.api_label.set(f"Nexus: {name} · automatic + browser fallback")
+        self.log_line(
+            f"Nexus API key validated for {name}; Tertium will try automatic downloads first "
+            "and fall back to nxm:// browser authorization only when Nexus requires it."
+        )
 
     def register_nxm(self) -> None:
         try:
@@ -1390,10 +1395,10 @@ class TertiumApp:
         for rec, succ in updates:
             lines.append(f"{rec.name}: {rec.version or rec.file_id} → {succ.get('version') or succ.get('file_id')}")
         self.queue.put(("updates", updates))
-        if self.config.get("nexus_is_premium") is True:
-            note = "Update All can download and install these automatically."
-        else:
-            note = "Update All will guide the Nexus authorization clicks and handle each install automatically."
+        note = (
+            "Update All will try automatic download first and fall back to Nexus browser authorization "
+            "only for files that require it."
+        )
         if local_only:
             note += f"\n\n{len(local_only)} local-only mod(s) are not Nexus-linked yet."
         self.queue.put(("message", ("info", "Updates available", "\n".join(lines) + "\n\n" + note)))
@@ -1404,7 +1409,7 @@ class TertiumApp:
             return
         self._run_worker(lambda: self._repair_worker(False), "Repairing Darktide after update…")
 
-    def repair_and_launch(self) -> None:
+    def repair_and_launch(self, skip_crash_guard: bool = False) -> None:
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
             return
@@ -1416,10 +1421,11 @@ class TertiumApp:
             return
 
         # If the newest session produced a high-confidence mod stack, offer the
-        # one-click recovery path before launching the exact same setup again.
-        finding = self._refresh_crash_guard()
+        # recovery path before launching the exact same setup again. Explicit
+        # Crash Guard actions pass skip_crash_guard=True so they never prompt twice.
+        finding = None if skip_crash_guard else self._refresh_crash_guard()
         candidate = self._primary_crash_candidate(finding)
-        if candidate and candidate.get("confidence") == "high":
+        if not skip_crash_guard and candidate and candidate.get("confidence") == "high":
             name = str(candidate.get("logical_name") or "the suspected mod")
             choice = messagebox.askyesnocancel(
                 "Crash Guard",
@@ -1480,24 +1486,15 @@ class TertiumApp:
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
             return
-        if self.config.get("nexus_is_premium") is True:
-            if not messagebox.askyesno(
-                "Update all tracked mods",
-                "Tertium will check every tracked Nexus mod, create a protected state snapshot, then download and install available updates automatically.\n\n"
-                "Core framework updates can occasionally require updates to individual mods. Continue?",
-            ):
-                return
-            self._run_worker(self._update_all_worker, "Finding and installing Nexus updates…")
-            return
-
         if not messagebox.askyesno(
             "Update all tracked mods",
-            "Your Nexus account requires browser authorization for file downloads.\n\n"
-            "Tertium will find the updates, open one Nexus file page at a time, and wait for you to click Mod Manager Download. "
-            "After each click, Tertium will download/install that update and automatically advance to the next one.\n\nContinue?",
+            "Tertium will check every tracked Nexus mod and create a protected state snapshot before changing anything.\n\n"
+            "For each update, Tertium will try the automatic Nexus download path first. If Nexus requires browser "
+            "authorization, Tertium will open that file page and wait for one Mod Manager Download click, then continue automatically.\n\n"
+            "Continue?",
         ):
             return
-        self._run_worker(self._collect_guided_updates_worker, "Finding Nexus updates…")
+        self._run_worker(self._update_all_worker, "Finding and installing Nexus updates…")
 
     def _collect_guided_updates_worker(self) -> None:
         client = NexusClient(self.api_key)
@@ -1541,10 +1538,10 @@ class TertiumApp:
         if not updates:
             return
         messagebox.showinfo(
-            "Update All",
-            f"Found {len(updates)} update(s).\n\n"
-            "Tertium will open each Nexus page in order. Click Mod Manager Download on that page. "
-            "Tertium will receive the NXM link, install the update, and move to the next mod automatically.",
+            "Update All — Nexus authorization",
+            f"{len(updates)} remaining update(s) require Nexus browser authorization.\n\n"
+            "Tertium will open each required Nexus page in order. Click Mod Manager Download once on that page; "
+            "Tertium will receive the NXM link, install the update, and automatically continue.",
         )
         self._open_next_guided_update()
 
@@ -1608,11 +1605,15 @@ class TertiumApp:
             try:
                 urls = client.direct_download_urls(old.mod_id, new_file_id)
             except ModManagerError as exc:
-                if "403" in str(exc) or "free Nexus account" in str(exc):
-                    raise ModManagerError(
-                        "Nexus did not grant direct download access for this account. "
-                        "Run Update All again and Tertium will use the browser-assisted authorization workflow."
-                    ) from exc
+                if browser_authorization_required(exc):
+                    remaining = updates[idx - 1:]
+                    self.queue.put((
+                        "log",
+                        f"Nexus requires browser authorization for {old.name}; switching the remaining "
+                        f"{len(remaining)} update(s) to guided authorization automatically.",
+                    ))
+                    self.queue.put(("guided_updates", remaining))
+                    return
                 raise
             file_name = str(successor.get("file_name") or f"{old.mod_id}-{new_file_id}.zip")
             cache = self.store.cache_archive_path(old.mod_id, new_file_id, file_name)
