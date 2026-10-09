@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from version import __version__
 
-RELEASE_REPO = "Tangodwn/TertiumModManager"
+RELEASE_REPO = "Tangodwn/TertiumModManager-Releases"
 RELEASE_API = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
 USER_AGENT = f"TertiumModManager/{__version__} (+self updater)"
 INSTALLER_NAME = "TertiumModManager-Setup-x64.exe"
