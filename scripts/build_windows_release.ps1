@@ -120,7 +120,7 @@ try {
     Write-Host "[6/6] Writing SHA-256 files..." -ForegroundColor Cyan
     Get-ChildItem $Release -File | Where-Object { $_.Extension -ne '.sha256' } | ForEach-Object {
         $h=(Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
-        Set-Content -NoNewline ($_.FullName + '.sha256') ($h + '  ' + $_.Name)
+        Set-Content -LiteralPath ($_.FullName + '.sha256') -Value ($h + '  ' + $_.Name) -NoNewline
     }
 
     Write-Host "Release build complete." -ForegroundColor Green
