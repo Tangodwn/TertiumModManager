@@ -30,9 +30,9 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           $tag = "v$version"
-          if ("\${{ github.ref_type }}" -eq "tag") {
-            if ("\${{ github.ref_name }}" -ne $tag) {
-              throw "Release tag '\${{ github.ref_name }}' does not match VERSION '$version'. Expected '$tag'."
+          if ("${{ github.ref_type }}" -eq "tag") {
+            if ("${{ github.ref_name }}" -ne $tag) {
+              throw "Release tag '${{ github.ref_name }}' does not match VERSION '$version'. Expected '$tag'."
             }
           } else {
             if (-not (Test-Path "RELEASE_REQUEST")) { throw "RELEASE_REQUEST is missing." }
@@ -65,7 +65,7 @@ jobs:
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TertiumModManager-Windows-\${{ steps.release.outputs.tag }}
+          name: TertiumModManager-Windows-${{ steps.release.outputs.tag }}
           path: |
             release/TertiumModManager-Setup-x64.exe
             release/TertiumModManager-Setup-x64.exe.sha256
@@ -75,20 +75,20 @@ jobs:
         if: github.ref_type != 'tag'
         shell: pwsh
         env:
-          GH_TOKEN: \${{ github.token }}
-          RELEASE_TAG: \${{ steps.release.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh api "repos/\${{ github.repository }}/git/ref/tags/$env:RELEASE_TAG" *> $null
+          gh api "repos/${{ github.repository }}/git/ref/tags/$env:RELEASE_TAG" *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh api --method POST "repos/\${{ github.repository }}/git/refs" -f ref="refs/tags/$env:RELEASE_TAG" -f sha="\${{ github.sha }}"
+            gh api --method POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$env:RELEASE_TAG" -f sha="${{ github.sha }}"
           }
 
       - name: Publish GitHub release assets
         shell: pwsh
         env:
-          GH_TOKEN: \${{ github.token }}
-          RELEASE_TAG: \${{ steps.release.outputs.tag }}
-          RELEASE_VERSION: \${{ steps.release.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
           $notes = "RELEASE_NOTES_$env:RELEASE_VERSION.md"
           gh release view $env:RELEASE_TAG *> $null
