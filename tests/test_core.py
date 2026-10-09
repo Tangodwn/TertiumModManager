@@ -1084,7 +1084,9 @@ def test_guardian_recovery_and_nexus_fallback_source_contract():
     assert 'text="Launch Anyway"' in source
     assert 'text="Advanced Details"' in source
     assert 'def repair_and_launch(self, skip_crash_guard: bool = False)' in source
-    retry = source[source.index("def disable_crash_suspect_and_retry"):source.index("def launch_crash_anyway")]
+    retry_start = source.index("def disable_crash_suspect_and_retry")
+    retry_end = source.index("def delete_crash_suspect", retry_start)
+    retry = source[retry_start:retry_end]
     assert "askyesno" not in retry
     assert "skip_crash_guard=True" in retry
 
