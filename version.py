@@ -1,2 +1,2 @@
-__version__ = "0.8.12"
-RELEASE_NAME = "One-Button Recovery"
+__version__ = "0.8.13"
+RELEASE_NAME = "Clean Bootstrap"
