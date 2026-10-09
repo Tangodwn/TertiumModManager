@@ -778,15 +778,35 @@ class TertiumApp:
         candidates = finding.get("candidates") or []
         return dict(candidates[0]) if candidates and isinstance(candidates[0], dict) else None
 
+    def _set_crash_guard_actions(
+        self,
+        candidate: dict | None = None,
+        finding: dict | None = None,
+        quarantined: bool = False,
+    ) -> None:
+        name = str((candidate or {}).get("logical_name") or "")
+        confidence = str((candidate or {}).get("confidence") or "").lower()
+        try:
+            self.disable_retry_button.config(text=f"Disable {name} & Retry" if name else "Disable Suspect & Retry")
+            if candidate and confidence == "high" and not quarantined:
+                self.disable_retry_button.state(["!disabled"])
+            else:
+                self.disable_retry_button.state(["disabled"])
+            if finding:
+                self.launch_anyway_button.state(["!disabled"])
+                self.crash_details_button.state(["!disabled"])
+            else:
+                self.launch_anyway_button.state(["disabled"])
+                self.crash_details_button.state(["disabled"])
+        except Exception:
+            pass
+
     def _refresh_crash_guard(self) -> dict | None:
         if not self.game_dir or not validate_game_dir(self.game_dir)[0]:
             self.recent_crash_finding = None
             self.crash_notice_var.set("No recent mod-specific crash detected.")
             self.quarantine_text.set("No active quarantines")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         quarantines = active_quarantines(self.game_dir, self.compatibility)
@@ -797,10 +817,7 @@ class TertiumApp:
         if not finding:
             self.recent_crash_finding = None
             self.crash_notice_var.set("Last Darktide session did not expose a mod-specific crash.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         # Do not blame mods for a crash from a deliberately vanilla session.
@@ -809,10 +826,7 @@ class TertiumApp:
         if last_mode == "vanilla" and float(finding.get("mtime") or 0.0) >= max(0.0, last_vanilla - 30.0):
             self.recent_crash_finding = None
             self.crash_notice_var.set("Most recent crash was from a vanilla launch; no mod was quarantined.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         signature = str(finding.get("signature") or "")
@@ -820,40 +834,52 @@ class TertiumApp:
         if signature and signature in ignored:
             self.recent_crash_finding = None
             self.crash_notice_var.set("Previous crash notice dismissed. No new mod-specific crash detected.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self._set_crash_guard_actions()
             return None
 
         candidate = self._primary_crash_candidate(finding)
         self.recent_crash_finding = finding
         if candidate:
             name = str(candidate.get("logical_name") or "Unknown mod")
-            confidence = str(candidate.get("confidence") or "low")
+            confidence = str(candidate.get("confidence") or "low").lower()
             build = read_steam_build_id(self.game_dir)
-            version = next((str(m.get("version") or "") for m in scan_installed_mods(self.game_dir) if str(m.get("logical_name") or "").lower() == name.lower()), "")
+            version = next(
+                (
+                    str(m.get("version") or "")
+                    for m in scan_installed_mods(self.game_dir)
+                    if str(m.get("logical_name") or "").lower() == name.lower()
+                ),
+                "",
+            )
             if signature:
-                self.compatibility.record_crash(name, build, version, signature, str(finding.get("error") or ""), str(finding.get("log_name") or ""))
+                self.compatibility.record_crash(
+                    name,
+                    build,
+                    version,
+                    signature,
+                    str(finding.get("error") or ""),
+                    str(finding.get("log_name") or ""),
+                )
             active_names = {str(q.get("logical_name") or "").lower() for q in quarantines}
-            if name.lower() in active_names:
-                self.crash_notice_var.set(f"{name} is quarantined for this Darktide build/mod version after a recent crash.")
-                try:
-                    self.disable_retry_button.state(["disabled"])
-                except Exception:
-                    pass
+            quarantined = name.lower() in active_names
+            if quarantined:
+                self.crash_notice_var.set(
+                    f"{name} is quarantined for this Darktide build/mod version after a recent crash."
+                )
+            elif confidence == "high":
+                self.crash_notice_var.set(
+                    f"Darktide crashed during the last modded session. {name} appears in the crash stack and is the likely cause."
+                )
             else:
-                self.crash_notice_var.set(f"Last crash suspect: {name} ({confidence} confidence). Tertium found it in the newest crash stack.")
-                try:
-                    self.disable_retry_button.state(["!disabled"])
-                except Exception:
-                    pass
+                self.crash_notice_var.set(
+                    f"Darktide crashed. {name} is a {confidence}-confidence suspect; review details before disabling it."
+                )
+            self._set_crash_guard_actions(candidate, finding, quarantined=quarantined)
         else:
-            self.crash_notice_var.set("Darktide crashed, but Tertium could not identify a specific mod from the stack.")
-            try:
-                self.disable_retry_button.state(["disabled"])
-            except Exception:
-                pass
+            self.crash_notice_var.set(
+                "Darktide crashed, but Tertium could not identify a specific mod from the stack."
+            )
+            self._set_crash_guard_actions(None, finding)
         return finding
 
     def _remember_handled_crash(self, finding: dict | None) -> None:
@@ -889,29 +915,77 @@ class TertiumApp:
         if not candidate:
             messagebox.showinfo("Crash Guard", "Tertium does not currently have a specific mod suspect to disable.")
             return
+        if str(candidate.get("confidence") or "").lower() != "high":
+            messagebox.showinfo(
+                "Crash Guard",
+                "The newest crash does not contain enough direct stack evidence for one-click quarantine. "
+                "Use Advanced Details before changing the mod setup.",
+            )
+            return
         name = str(candidate.get("logical_name") or "")
         if not name:
-            return
-        if not messagebox.askyesno(
-            "Disable suspect & retry",
-            f"Disable {name} and quarantine this exact mod version for the current Darktide build, then launch modded?",
-        ):
             return
         try:
             self._quarantine_candidate(name, finding)
         except Exception as exc:
             messagebox.showerror("Crash Guard", str(exc))
             return
-        self.repair_and_launch()
+        self.log_line(f"Crash Guard retry: launching modded with {name} disabled.")
+        self.repair_and_launch(skip_crash_guard=True)
+
+    def launch_crash_anyway(self) -> None:
+        finding = self.recent_crash_finding or self._refresh_crash_guard()
+        if not finding:
+            self.repair_and_launch(skip_crash_guard=True)
+            return
+        candidate = self._primary_crash_candidate(finding)
+        name = str((candidate or {}).get("logical_name") or "")
+        self._remember_handled_crash(finding)
+        self.recent_crash_finding = None
+        self._set_crash_guard_actions()
+        self.log_line(
+            "Crash Guard override: launching the current modded setup anyway"
+            + (f" despite suspect {name}." if name else ".")
+        )
+        self.repair_and_launch(skip_crash_guard=True)
+
+    def show_crash_guard_details(self) -> None:
+        finding = self.recent_crash_finding or self._refresh_crash_guard()
+        if not finding:
+            messagebox.showinfo("Crash Guard details", "No current crash finding is available.")
+            return
+        self.mode_var.set("advanced")
+        try:
+            self.notebook.select(self.tools_tab)
+        except Exception:
+            pass
+        candidates = finding.get("candidates") or []
+        candidate_lines = []
+        for item in candidates[:5]:
+            if not isinstance(item, dict):
+                continue
+            candidate_lines.append(
+                f"- {item.get('logical_name') or 'Unknown'}: {item.get('confidence') or 'unknown'} "
+                f"confidence (score {item.get('score') or 0})"
+            )
+        body = [
+            f"Log: {finding.get('log_name') or 'unknown'}",
+            "",
+            "Error:",
+            str(finding.get("error") or "No script error text captured."),
+            "",
+            "Mod candidates:",
+            *(candidate_lines or ["- No specific mod identified"]),
+            "",
+            "Advanced Mode is now open for Health Check, diagnostics, and recovery tools.",
+        ]
+        messagebox.showinfo("Crash Guard details", "\n".join(body))
 
     def dismiss_crash_notice(self) -> None:
         self._remember_handled_crash(self.recent_crash_finding)
         self.recent_crash_finding = None
         self.crash_notice_var.set("Crash notice dismissed. Tertium will alert you again for a new crash signature.")
-        try:
-            self.disable_retry_button.state(["disabled"])
-        except Exception:
-            pass
+        self._set_crash_guard_actions()
 
     def _poll_game_session(self) -> None:
         try:
