@@ -2,8 +2,8 @@
 
 Tertium is a free, unofficial Windows mod manager and launcher for **Warhammer 40,000: Darktide**.
 
-Current version: **0.8.9**  
-Current development baseline: **v0.8.9 — One-Stop Launch**
+Current version: **0.8.10**  
+Current development baseline: **v0.8.10 — Public Update Channel**
 
 ## Goals
 
@@ -71,4 +71,4 @@ Source code is currently provided under the MIT License. Third-party projects, m
 
 ## Application updates
 
-Tertium can check its canonical GitHub release feed from inside the launcher. When a newer version is available, it can download the official Windows installer, verify SHA-256, close itself, install silently, and reopen. This requires the configured release endpoint to be publicly reachable; private GitHub repositories require a separate authenticated/public release channel.
+Tertium can check its canonical GitHub release feed from inside the launcher. When a newer version is available, it can download the official Windows installer, verify SHA-256, close itself, install silently, and reopen. The installed launcher checks the public Tangodwn/TertiumModManager-Releases channel, while development source remains private.
