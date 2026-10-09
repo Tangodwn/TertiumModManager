@@ -283,6 +283,14 @@ class TertiumApp:
         style.configure("TFrame", background=bg)
         style.configure("Panel.TFrame", background=panel)
         style.configure("Subtle.TFrame", background=panel2)
+        style.configure("Border.TFrame", background=panel, borderwidth=1, relief="solid")
+        style.configure("AccentBorder.TFrame", background=panel, borderwidth=2, relief="solid")
+        style.configure("Card.TLabelframe", background=panel, foreground=text, borderwidth=1, relief="solid")
+        style.configure("Card.TLabelframe.Label", background=panel, foreground=muted, font=("Segoe UI Semibold", 9))
+        style.configure("AccentCard.TLabelframe", background=panel, foreground=accent, borderwidth=2, relief="solid")
+        style.configure("AccentCard.TLabelframe.Label", background=panel, foreground=accent, font=("Segoe UI Semibold", 9))
+        style.configure("DangerCard.TLabelframe", background=panel, foreground=danger, borderwidth=2, relief="solid")
+        style.configure("DangerCard.TLabelframe.Label", background=panel, foreground=danger, font=("Segoe UI Semibold", 9))
         style.configure("TLabel", background=bg, foreground=text, font=("Segoe UI", 10))
         style.configure("Panel.TLabel", background=panel, foreground=text, font=("Segoe UI", 10))
         style.configure("Muted.Panel.TLabel", background=panel, foreground=muted, font=("Segoe UI", 9))
@@ -301,7 +309,19 @@ class TertiumApp:
         style.map("Update.TButton", background=[("active", "#855923"), ("pressed", "#4d3215")])
         style.configure("Danger.TButton", foreground=text, background="#552b2b")
         style.configure("TNotebook", background=bg, borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(14, 8), font=("Segoe UI Semibold", 10))
+        style.configure(
+            "TNotebook.Tab",
+            padding=(14, 8),
+            font=("Segoe UI Semibold", 10),
+            background=panel2,
+            foreground=muted,
+            borderwidth=1,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", panel), ("active", "#2a333f")],
+            foreground=[("selected", accent), ("active", text)],
+        )
         style.configure("TLabelframe", background=bg, foreground=text)
         style.configure("TLabelframe.Label", background=bg, foreground=muted, font=("Segoe UI Semibold", 9))
         style.configure("Treeview", background=panel, fieldbackground=panel, foreground=text, rowheight=28, borderwidth=0)
@@ -315,8 +335,47 @@ class TertiumApp:
         self.dashboard_updates = StringVar(value="Updates: —")
         self.dashboard_build = StringVar(value="Steam build: —")
 
-        header = ttk.Frame(self.root, style="Panel.TFrame", padding=(18, 14))
-        header.pack(fill=X)
+        tk = __import__("tkinter")
+        header_shell = tk.Frame(
+            self.root,
+            bg=accent_dark,
+            highlightbackground=accent,
+            highlightcolor=accent,
+            highlightthickness=1,
+            bd=0,
+        )
+        header_shell.pack(fill=X, padx=10, pady=(10, 0))
+        header = ttk.Frame(header_shell, style="Panel.TFrame", padding=(16, 12))
+        header.pack(fill=X, padx=2, pady=2)
+
+        brand_mark = tk.Canvas(
+            header,
+            width=48,
+            height=48,
+            bg=panel,
+            highlightthickness=0,
+            bd=0,
+        )
+        brand_mark.pack(side=LEFT, padx=(0, 12))
+        brand_mark.create_polygon(
+            24, 3, 41, 12, 45, 29, 35, 44, 17, 45, 4, 33, 5, 15,
+            outline=accent,
+            fill="#11161d",
+            width=2,
+        )
+        brand_mark.create_polygon(
+            24, 9, 35, 15, 38, 28, 31, 38, 18, 39, 10, 30, 11, 18,
+            outline=accent_dark,
+            fill=panel2,
+            width=1,
+        )
+        brand_mark.create_text(
+            24, 25,
+            text="T",
+            fill=text,
+            font=("Segoe UI Semibold", 20),
+        )
+
         titlebox = ttk.Frame(header, style="Panel.TFrame")
         titlebox.pack(side=LEFT, fill=X, expand=True)
         ttk.Label(titlebox, text="TERTIUM MOD MANAGER", style="Hero.TLabel").pack(anchor="w")
@@ -360,18 +419,32 @@ class TertiumApp:
 
         simple_split = ttk.Panedwindow(simple_home, orient="horizontal")
         simple_split.pack(fill=BOTH, expand=True)
-        art_side = ttk.Frame(simple_split, style="Panel.TFrame")
-        action_side = ttk.Frame(simple_split, style="Panel.TFrame", padding=(14, 12))
+        art_side = ttk.Frame(simple_split, style="Border.TFrame", padding=2)
+        action_side = ttk.Frame(simple_split, style="Border.TFrame", padding=(14, 12))
         simple_split.add(art_side, weight=5)
         simple_split.add(action_side, weight=4)
 
         # Permanent art is original Tertium artwork, not redistributed Fatshark key art.
-        tk = __import__("tkinter")
         art_path = bundled_resource("assets", "tertium_hive.png")
         try:
             self.simple_art_image = tk.PhotoImage(file=str(art_path))
-            art_label = tk.Label(art_side, image=self.simple_art_image, bg="#090c10", borderwidth=0, highlightthickness=0)
-            art_label.pack(fill=BOTH, expand=True)
+            art_border = tk.Frame(
+                art_side,
+                bg=accent_dark,
+                highlightbackground=accent,
+                highlightcolor=accent,
+                highlightthickness=1,
+                bd=0,
+            )
+            art_border.pack(fill=BOTH, expand=True)
+            art_label = tk.Label(
+                art_border,
+                image=self.simple_art_image,
+                bg="#090c10",
+                borderwidth=0,
+                highlightthickness=0,
+            )
+            art_label.pack(fill=BOTH, expand=True, padx=2, pady=2)
         except Exception:
             self.simple_art_image = None
             art_fallback = tk.Frame(art_side, bg="#090c10")
@@ -397,13 +470,13 @@ class TertiumApp:
         )
         self.app_update_button.pack(fill=X, ipady=5, pady=(0, 12))
 
-        status_card = ttk.Frame(action_side, style="Panel.TFrame", padding=12)
+        status_card = ttk.Frame(action_side, style="AccentBorder.TFrame", padding=12)
         status_card.pack(fill=X, pady=(0, 8))
         ttk.Label(status_card, textvariable=self.dashboard_mods, style="StatusGood.TLabel").pack(anchor="w")
         ttk.Label(status_card, textvariable=self.dashboard_build, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
         ttk.Label(status_card, textvariable=self.dashboard_updates, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
 
-        crash_card = ttk.LabelFrame(action_side, text=" Crash Guard ", padding=10)
+        crash_card = ttk.LabelFrame(action_side, text=" Crash Guard ", style="DangerCard.TLabelframe", padding=10)
         crash_card.pack(fill=X, pady=(0, 8))
         ttk.Label(crash_card, textvariable=self.crash_notice_var, wraplength=430, justify="left").pack(anchor="w")
         crash_actions = ttk.Frame(crash_card)
@@ -422,7 +495,7 @@ class TertiumApp:
         self.crash_details_button.state(["disabled"])
         ttk.Label(crash_actions, textvariable=self.quarantine_text).pack(side=RIGHT)
 
-        news_card = ttk.LabelFrame(action_side, text=" Official Darktide Updates ", padding=10)
+        news_card = ttk.LabelFrame(action_side, text=" Official Darktide Updates ", style="AccentCard.TLabelframe", padding=10)
         news_card.pack(fill=X, pady=(0, 8))
         ttk.Label(news_card, textvariable=self.news_title_var, style="Panel.TLabel", wraplength=430, justify="left").pack(anchor="w")
         ttk.Label(news_card, textvariable=self.news_date_var, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 6))
@@ -464,7 +537,7 @@ class TertiumApp:
         ttk.Button(launchrow, text="Launch Without Repair", command=self.launch_game).pack(side=LEFT, padx=(8, 0))
         ttk.Button(launchrow, text="Play Vanilla", command=self.launch_vanilla).pack(side=LEFT, padx=(8, 0))
 
-        core = ttk.LabelFrame(play_left, text=" Core Darktide modding stack ", padding=12)
+        core = ttk.LabelFrame(play_left, text=" Core Darktide modding stack ", style="Card.TLabelframe", padding=12)
         core.pack(fill=X, pady=(0, 10))
         self.core_text = StringVar(value="Core status: not scanned")
         ttk.Label(core, textvariable=self.core_text, wraplength=730, justify="left").pack(anchor="w")
@@ -476,7 +549,7 @@ class TertiumApp:
         ttk.Button(corerow, text="Set Up Core Stack", command=self.setup_core_stack).pack(side=RIGHT, padx=(6, 0))
         ttk.Button(corerow, text="Repair Loader", command=self.repair_loader).pack(side=RIGHT)
 
-        quick = ttk.LabelFrame(play_left, text=" Quick actions ", padding=12)
+        quick = ttk.LabelFrame(play_left, text=" Quick actions ", style="Card.TLabelframe", padding=12)
         quick.pack(fill=BOTH, expand=True)
         q1 = ttk.Frame(quick)
         q1.pack(fill=X, pady=(0, 7))
@@ -517,7 +590,9 @@ class TertiumApp:
         ttk.Label(listbar, textvariable=self.mod_count_text).pack(side=RIGHT, padx=(12, 0))
 
         cols = ("enabled", "name", "version", "nexus", "folder", "update")
-        self.tree = ttk.Treeview(mods_tab, columns=cols, show="headings", selectmode="browse")
+        tree_shell = ttk.Frame(mods_tab, style="Border.TFrame", padding=2)
+        tree_shell.pack(fill=BOTH, expand=True)
+        self.tree = ttk.Treeview(tree_shell, columns=cols, show="headings", selectmode="browse")
         headers = {"enabled": "On", "name": "Mod", "version": "Version", "nexus": "Nexus ID", "folder": "Folder", "update": "Update"}
         widths = {"enabled": 48, "name": 300, "version": 100, "nexus": 80, "folder": 230, "update": 90}
         for c in cols:
@@ -543,7 +618,7 @@ class TertiumApp:
         self.mod_remove_button.pack(side=LEFT, padx=(0, 6))
         ttk.Button(actions, text="Refresh", command=self.refresh).pack(side=RIGHT)
 
-        profiles = ttk.LabelFrame(mods_tab, text=" Profiles ", padding=10)
+        profiles = ttk.LabelFrame(mods_tab, text=" Profiles ", style="Card.TLabelframe", padding=10)
         self.profiles_frame = profiles
         profiles.pack(fill=X, pady=(10, 0))
         ttk.Label(profiles, text="Profile:").pack(side=LEFT, padx=(0, 6))
@@ -558,7 +633,7 @@ class TertiumApp:
         self.recovery_content.pack(fill=BOTH, expand=True)
         recovery_tab = self.recovery_content
 
-        simple_profile_frame = ttk.LabelFrame(recovery_tab, text=" Profiles ", padding=12)
+        simple_profile_frame = ttk.LabelFrame(recovery_tab, text=" Profiles ", style="Card.TLabelframe", padding=12)
         self.simple_profile_frame = simple_profile_frame
         simple_profile_frame.pack(fill=X, pady=(0, 10))
         ttk.Label(simple_profile_frame, text="Profile:").pack(side=LEFT, padx=(0, 6))
@@ -595,7 +670,7 @@ class TertiumApp:
             rec_grid.columnconfigure(i, weight=1)
 
         # DIAGNOSTICS / SETTINGS TAB
-        interface_box = ttk.LabelFrame(tools_tab, text=" Interface ", padding=12)
+        interface_box = ttk.LabelFrame(tools_tab, text=" Interface ", style="AccentCard.TLabelframe", padding=12)
         interface_box.pack(fill=X, pady=(0, 10))
         interface_copy = ttk.Frame(interface_box)
         interface_copy.pack(side=LEFT, fill=X, expand=True)
@@ -616,11 +691,11 @@ class TertiumApp:
 
         settings_top = ttk.Frame(tools_tab)
         settings_top.pack(fill=X)
-        game_box = ttk.LabelFrame(settings_top, text=" Darktide ", padding=12)
+        game_box = ttk.LabelFrame(settings_top, text=" Darktide ", style="Card.TLabelframe", padding=12)
         game_box.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 5))
         ttk.Label(game_box, textvariable=self.game_label, wraplength=480, justify="left").pack(anchor="w")
         ttk.Button(game_box, text="Set Game Folder", command=self.choose_game_dir).pack(anchor="w", pady=(8, 0))
-        nexus_box = ttk.LabelFrame(settings_top, text=" Nexus ", padding=12)
+        nexus_box = ttk.LabelFrame(settings_top, text=" Nexus ", style="Card.TLabelframe", padding=12)
         nexus_box.pack(side=LEFT, fill=BOTH, expand=True, padx=(5, 0))
         ttk.Label(nexus_box, textvariable=self.api_label, wraplength=480, justify="left").pack(anchor="w")
         nexusrow = ttk.Frame(nexus_box)
