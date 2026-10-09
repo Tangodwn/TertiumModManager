@@ -1,2 +1,2 @@
-__version__ = "0.8.6"
-RELEASE_NAME = "Guardian Linker"
+__version__ = "0.8.7"
+RELEASE_NAME = "Guardian Auto-Link"

@@ -17,6 +17,7 @@ from core import GAME_DOMAIN, ModManagerError
 from version import __version__
 
 API_ROOT = "https://api.nexusmods.com/v1"
+GRAPHQL_URL = "https://api.nexusmods.com/v2/graphql"
 USER_AGENT = f"TertiumModManager/{__version__} (+Darktide mod manager)"
 MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024 * 1024
 
@@ -166,6 +167,64 @@ class NexusClient:
     def validate(self) -> dict[str, Any]:
         return self._request_json("/users/validate.json")
 
+    def game_mod_catalog(self, domain: str = GAME_DOMAIN, page_size: int = 100, max_mods: int = 5000) -> list[dict[str, Any]]:
+        """Enumerate a game's mod catalog through Nexus GraphQL for reconciliation/search."""
+        out: list[dict[str, Any]] = []
+        offset = 0
+        page_size = max(1, min(int(page_size), 100))
+        max_mods = max(page_size, int(max_mods))
+        query = (
+            "query($domain: String!, $count: Int!, $offset: Int!) {"
+            " mods(filter: { filter: [{ gameDomainName: { value: $domain, op: EQUALS } }] }, "
+            " count: $count, offset: $offset) { totalCount nodes { modId name } } }"
+        )
+        while offset < max_mods:
+            payload = json.dumps({
+                "query": query,
+                "variables": {"domain": domain, "count": page_size, "offset": offset},
+            }).encode("utf-8")
+            request = urllib.request.Request(
+                GRAPHQL_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "APIKEY": self.api_key,
+                    "User-Agent": USER_AGENT,
+                    "Application-Name": "Tertium Mod Manager",
+                    "Application-Version": __version__,
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                raise ModManagerError(f"Nexus catalog API error {exc.code}: {body[:500]}") from exc
+            except urllib.error.URLError as exc:
+                raise ModManagerError(f"Could not reach the Nexus catalog API: {exc.reason}") from exc
+
+            errors = data.get("errors") if isinstance(data, dict) else None
+            if errors:
+                message = "; ".join(str(item.get("message") or item) for item in errors if isinstance(item, dict))
+                raise ModManagerError(f"Nexus catalog API error: {message or 'unknown GraphQL error'}")
+            mods = ((data.get("data") or {}).get("mods") or {}) if isinstance(data, dict) else {}
+            nodes = [dict(item) for item in (mods.get("nodes") or []) if isinstance(item, dict)]
+            for item in nodes:
+                try:
+                    mod_id = int(item.get("modId"))
+                except (TypeError, ValueError):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if mod_id > 0 and name:
+                    out.append({"mod_id": mod_id, "name": name})
+            total = int(mods.get("totalCount") or 0)
+            offset += len(nodes)
+            if not nodes or offset >= total:
+                break
+        return out
+
     def mod_info(self, mod_id: int, domain: str = GAME_DOMAIN) -> dict[str, Any]:
         return self._request_json(f"/games/{domain}/mods/{mod_id}.json")
 
@@ -182,6 +241,8 @@ class NexusClient:
     def latest_successor(self, mod_id: int, file_id: int, domain: str = GAME_DOMAIN) -> dict[str, Any] | None:
         payload = self.mod_files(mod_id, domain)
         current = int(file_id)
+        if current <= 0:
+            return latest_main_file(payload)
         by_old = {int(x.get("old_file_id")): int(x.get("new_file_id")) for x in payload.get("file_updates", []) if x.get("old_file_id") and x.get("new_file_id")}
         seen: set[int] = set()
         while current in by_old and current not in seen:
@@ -294,3 +355,67 @@ def browser_authorization_required(exc: BaseException) -> bool:
         "mod manager download",
     )
     return any(marker in text for marker in markers)
+
+
+def normalize_mod_identity(value: Any) -> str:
+    """Normalize display/folder names for conservative exact reconciliation."""
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+
+def unique_catalog_match(local_names: list[str], catalog: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return one exact normalized Nexus-name match; refuse zero or ambiguous matches."""
+    wanted = {normalize_mod_identity(name) for name in local_names if normalize_mod_identity(name)}
+    if not wanted:
+        return None
+    matches: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for item in catalog:
+        try:
+            mod_id = int(item.get("mod_id") or item.get("modId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if mod_id <= 0 or mod_id in seen:
+            continue
+        if normalize_mod_identity(item.get("name")) in wanted:
+            seen.add(mod_id)
+            matches.append({"mod_id": mod_id, "name": str(item.get("name") or "")})
+    return matches[0] if len(matches) == 1 else None
+
+
+def latest_main_file(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Choose the newest main/primary file; never silently substitute an optional file."""
+    files = [dict(item) for item in payload.get("files", []) if isinstance(item, dict)]
+    if not files:
+        return None
+
+    def file_key(item: dict[str, Any]) -> tuple[int, int]:
+        try:
+            uploaded = int(item.get("uploaded_timestamp") or 0)
+        except (TypeError, ValueError):
+            uploaded = 0
+        try:
+            file_id = int(item.get("file_id") or 0)
+        except (TypeError, ValueError):
+            file_id = 0
+        return uploaded, file_id
+
+    primary = [item for item in files if bool(item.get("is_primary")) and int(item.get("file_id") or 0) > 0]
+    if primary:
+        return max(primary, key=file_key)
+
+    main = []
+    for item in files:
+        try:
+            file_id = int(item.get("file_id") or 0)
+        except (TypeError, ValueError):
+            file_id = 0
+        if file_id <= 0:
+            continue
+        category_name = str(item.get("category_name") or "").strip().casefold()
+        try:
+            category_id = int(item.get("category_id") or 0)
+        except (TypeError, ValueError):
+            category_id = 0
+        if category_name in {"main", "main file", "main files"} or category_id == 1:
+            main.append(item)
+    return max(main, key=file_key) if main else None

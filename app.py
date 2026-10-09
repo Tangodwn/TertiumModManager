@@ -80,6 +80,7 @@ from nexus import (
     matching_files_for_version,
     parse_nexus_mod_reference,
     parse_nxm_url,
+    unique_catalog_match,
 )
 from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_official_news
 from winutil import protect_secret, register_nxm_protocol, unprotect_secret
@@ -140,6 +141,7 @@ class TertiumApp:
         self.guided_installing_mod_id: int | None = None
         self.pending_existing_link_local_id: int | None = None
         self.pending_existing_link_nexus_mod_id: int | None = None
+        self.auto_nexus_reconcile_active = False
         self.status = StringVar(value="Ready")
         self.profile_var = StringVar(value="")
         self.filter_var = StringVar(value="")
@@ -503,8 +505,10 @@ class TertiumApp:
         self.mod_toggle_button.pack(side=LEFT, padx=(0, 6))
         self.mod_nexus_button = ttk.Button(actions, text="Open on Nexus", command=self.open_selected_nexus)
         self.mod_nexus_button.pack(side=LEFT, padx=(0, 6))
-        self.mod_link_button = ttk.Button(actions, text="Link Existing to Nexus", command=self.link_selected_existing_mod)
+        self.mod_link_button = ttk.Button(actions, text="Auto-Link Existing", command=lambda: self._start_auto_nexus_reconcile(announce=True))
         self.mod_link_button.pack(side=LEFT, padx=(0, 6))
+        self.manual_link_button = ttk.Button(actions, text="Link Selected Manually", command=self.link_selected_existing_mod)
+        self.manual_link_button.pack(side=LEFT, padx=(0, 6))
         ttk.Button(actions, text="Discover Mods", command=self.open_nexus_catalog).pack(side=LEFT, padx=(0, 6))
         self.mod_rollback_button = ttk.Button(actions, text="Rollback Update", command=self.rollback_selected_update)
         self.mod_rollback_button.pack(side=LEFT, padx=(0, 6))
@@ -676,6 +680,7 @@ class TertiumApp:
         if self.api_key:
             nexus_name = str(self.config.get("nexus_name") or "account")
             self.api_label.set(f"Nexus: {nexus_name} · automatic + browser fallback")
+            self.root.after(750, self._start_auto_nexus_reconcile)
         if not self.config.get("welcome_seen"):
             self.config["welcome_seen"] = True
             self._save_config()
@@ -743,6 +748,7 @@ class TertiumApp:
                 self.profiles_frame.pack_forget()
                 self.mod_rollback_button.pack_forget()
                 self.mod_remove_button.pack_forget()
+                self.manual_link_button.pack_forget()
                 self.advanced_diag.pack_forget()
                 self.recovery_intro.pack_forget()
                 self.recovery_grid.pack_forget()
@@ -753,6 +759,8 @@ class TertiumApp:
                     self.mod_rollback_button.pack(side=LEFT, padx=(0, 6))
                 if not self.mod_remove_button.winfo_manager():
                     self.mod_remove_button.pack(side=LEFT, padx=(0, 6))
+                if not self.manual_link_button.winfo_manager():
+                    self.manual_link_button.pack(side=LEFT, padx=(0, 6))
                 if not self.advanced_diag.winfo_manager():
                     self.advanced_diag.pack(fill=X, pady=(10, 0))
                 if not self.recovery_intro.winfo_manager():
@@ -1093,7 +1101,11 @@ class TertiumApp:
                     (
                         "Available"
                         if rec and rec.mod_id in self.update_ids
-                        else ("Link Nexus" if rec and rec.source == "local" and rec.mod_id not in CORE_NAMES else "")
+                        else (
+                            "Baseline ?"
+                            if rec and rec.source == "nexus" and rec.file_id <= 0 and rec.mod_id not in CORE_NAMES
+                            else ("Auto-link" if rec and rec.source == "local" and rec.mod_id not in CORE_NAMES else "")
+                        )
                     ),
                 ),
             )
@@ -1204,6 +1216,8 @@ class TertiumApp:
         self.game_dir = p
         self._save_config()
         self.refresh()
+        if self.api_key:
+            self.root.after(100, self._start_auto_nexus_reconcile)
 
     def set_api_key(self) -> None:
         key = simpledialog.askstring(
@@ -1238,6 +1252,7 @@ class TertiumApp:
             f"Nexus API key validated for {name}; Tertium will try automatic downloads first "
             "and fall back to nxm:// browser authorization only when Nexus requires it."
         )
+        self.root.after(100, lambda: self._start_auto_nexus_reconcile(announce=True))
 
     def register_nxm(self) -> None:
         try:
@@ -1293,6 +1308,124 @@ class TertiumApp:
             return
         self.open_nexus(rec.mod_id)
 
+    def _local_only_mod_records(self) -> list[ModRecord]:
+        return [
+            record
+            for record in self.store.all()
+            if record.source == "local" and record.mod_id not in CORE_NAMES
+        ]
+
+    def _load_nexus_catalog(self, client: NexusClient) -> list[dict]:
+        cache_path = self.store.root / f"nexus-catalog-{GAME_DOMAIN}.json"
+        cached = load_json(cache_path, {})
+        if isinstance(cached, dict):
+            try:
+                fetched_at = float(cached.get("fetched_at") or 0.0)
+            except (TypeError, ValueError):
+                fetched_at = 0.0
+            rows = cached.get("mods")
+            if isinstance(rows, list) and rows and time.time() - fetched_at < 24 * 60 * 60:
+                return [dict(row) for row in rows if isinstance(row, dict)]
+        rows = client.game_mod_catalog(GAME_DOMAIN)
+        save_json(cache_path, {"fetched_at": time.time(), "mods": rows})
+        return rows
+
+    def _start_auto_nexus_reconcile(self, announce: bool = False) -> None:
+        if self.auto_nexus_reconcile_active or self.worker_active:
+            return
+        if not self.api_key or not self.game_dir or not validate_game_dir(self.game_dir)[0]:
+            return
+        local_records = self._local_only_mod_records()
+        if not local_records:
+            if announce:
+                messagebox.showinfo("Auto-Link Existing", "All installed normal mods are already Nexus-linked.")
+            return
+        self.auto_nexus_reconcile_active = True
+
+        def worker() -> None:
+            try:
+                self._auto_nexus_reconcile_worker(announce=announce)
+            except Exception as exc:
+                self.queue.put(("log", f"Automatic Nexus reconciliation warning: {exc}"))
+                self.queue.put((
+                    "auto_nexus_reconcile_complete",
+                    {
+                        "linked_exact": [],
+                        "linked_page": [],
+                        "unresolved": [record.name for record in local_records],
+                        "errors": [str(exc)],
+                        "announce": announce,
+                    },
+                ))
+
+        self._run_worker(worker, f"Auto-linking {len(local_records)} existing Nexus mod(s)…")
+
+    def _auto_nexus_reconcile_worker(self, announce: bool = False) -> None:
+        client = NexusClient(self.api_key)
+        catalog = self._load_nexus_catalog(client)
+        linked_exact: list[str] = []
+        linked_page: list[str] = []
+        unresolved: list[str] = []
+        errors: list[str] = []
+
+        for local in self._local_only_mod_records():
+            names = [local.name, *(folder.lstrip("_") for folder in (local.folders or []))]
+            candidate = unique_catalog_match(names, catalog)
+            if not candidate:
+                unresolved.append(local.name)
+                continue
+            nexus_mod_id = int(candidate.get("mod_id") or 0)
+            if nexus_mod_id <= 0:
+                unresolved.append(local.name)
+                continue
+            existing = self.store.get(nexus_mod_id)
+            if existing is not None and existing.mod_id != local.mod_id:
+                unresolved.append(local.name)
+                errors.append(
+                    f"{local.name}: Nexus mod {nexus_mod_id} is already linked to {existing.name}."
+                )
+                continue
+            try:
+                mod_info = client.mod_info(nexus_mod_id)
+                files_payload = client.mod_files(nexus_mod_id)
+                exact = matching_files_for_version(files_payload, local.version)
+                file_info = exact[0] if len(exact) == 1 else {}
+                linked = link_local_record_to_nexus(
+                    self.store,
+                    local.mod_id,
+                    nexus_mod_id,
+                    mod_info,
+                    file_info,
+                )
+                if linked.file_id > 0:
+                    linked_exact.append(linked.name)
+                    self.queue.put((
+                        "log",
+                        f"Auto-linked {local.name} → Nexus {linked.mod_id}, file {linked.file_id} "
+                        f"({linked.version or 'version unknown'}).",
+                    ))
+                else:
+                    linked_page.append(linked.name)
+                    self.queue.put((
+                        "log",
+                        f"Auto-linked {local.name} → Nexus {linked.mod_id}; historical file baseline is unknown. "
+                        "Update All will resolve it to the latest main file.",
+                    ))
+            except Exception as exc:
+                unresolved.append(local.name)
+                errors.append(f"{local.name}: {exc}")
+
+        self.queue.put((
+            "auto_nexus_reconcile_complete",
+            {
+                "linked_exact": linked_exact,
+                "linked_page": linked_page,
+                "unresolved": unresolved,
+                "errors": errors,
+                "announce": announce,
+            },
+        ))
+
     def link_selected_existing_mod(self) -> None:
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
@@ -1310,7 +1443,7 @@ class TertiumApp:
         if not sel:
             messagebox.showinfo(
                 "Link existing mod",
-                "Select one of the local-only mods marked 'Link Nexus', then click Link Existing to Nexus.",
+                "Automatic linking handles normal cases. In Advanced Mode, select an unresolved local-only mod and use Link Selected Manually only as a fallback.",
             )
             return
         values = self.tree.item(sel[0], "values")
@@ -1335,10 +1468,10 @@ class TertiumApp:
         self.pending_existing_link_local_id = None
         self.pending_existing_link_nexus_mod_id = None
         reference = simpledialog.askstring(
-            "Link existing mod to Nexus",
+            "Manual Nexus link fallback",
             f"Local mod: {rec.name}\n"
             f"Installed version: {rec.version or 'unknown'}\n\n"
-            "Paste the Nexus mod page URL or numeric mod ID.\n\n"
+            "Automatic linking could not resolve this mod. Paste the Nexus mod page URL or numeric mod ID.\n\n"
             "Tertium will only change its tracking record; it will not download, reinstall, enable, disable, or move the mod.",
         )
         if reference is None:
@@ -1679,7 +1812,7 @@ class TertiumApp:
             self.queue.put((
                 "log",
                 f"{len(local_only)} adopted local-only mod(s) are not Nexus-linked yet. "
-                "Tertium will link a matching local mod automatically the next time it is installed/updated through Nexus.",
+                "Tertium will automatically reconcile exact mod-name matches against the connected Nexus catalog.",
             ))
         for idx, rec in enumerate(records, 1):
             self.queue.put(("status", f"Checking {idx}/{len(records)}: {rec.name}"))
@@ -1694,8 +1827,8 @@ class TertiumApp:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
                 body += (
-                    f"\n\n{len(local_only)} installed mod(s) are currently local-only. "
-                    "Tertium does not guess Nexus IDs; they will become update-managed automatically after a matching Nexus install/download."
+                    f"\n\n{len(local_only)} installed mod(s) are still local-only. "
+                    "Tertium auto-links only unique verified Nexus catalog matches; unresolved names are left untouched rather than guessed."
                 )
             self.queue.put(("message", ("info", "Updates", body)))
             return
@@ -1824,7 +1957,10 @@ class TertiumApp:
         if not updates:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
-                body += f"\n\n{len(local_only)} local-only mod(s) will be linked automatically after a matching Nexus install/download."
+                body += (
+                    f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
+                    "Use Auto-Link Existing to retry catalog reconciliation; only unusual names should need the Advanced manual fallback."
+                )
             self.queue.put(("message", ("info", "Updates", body)))
             return
         priority = {DML_MOD_ID: 0, DMF_MOD_ID: 1, AML_MOD_ID: 2}
@@ -1895,7 +2031,10 @@ class TertiumApp:
         if not updates:
             body = f"All {len(records)} Nexus-linked mod(s) are current."
             if local_only:
-                body += f"\n\n{len(local_only)} local-only mod(s) will be linked automatically after a matching Nexus install/download."
+                body += (
+                    f"\n\n{len(local_only)} local-only mod(s) are still unresolved. "
+                    "Use Auto-Link Existing to retry catalog reconciliation; only unusual names should need the Advanced manual fallback."
+                )
             self.queue.put(("message", ("info", "Updates", body)))
             return
         priority = {DML_MOD_ID: 0, DMF_MOD_ID: 1, AML_MOD_ID: 2}
@@ -2528,6 +2667,39 @@ class TertiumApp:
                     self._begin_guided_updates(list(payload))
                 elif kind == "existing_link_ready":
                     self._finish_existing_mod_link(dict(payload or {}))
+                elif kind == "auto_nexus_reconcile_complete":
+                    report = dict(payload or {})
+                    self.auto_nexus_reconcile_active = False
+                    self.refresh()
+                    exact = list(report.get("linked_exact") or [])
+                    page = list(report.get("linked_page") or [])
+                    unresolved = list(report.get("unresolved") or [])
+                    linked_count = len(exact) + len(page)
+                    if linked_count:
+                        self.log_line(
+                            f"Automatic Nexus reconciliation linked {linked_count} mod(s): "
+                            f"{len(exact)} exact file match(es), {len(page)} mod-page match(es)."
+                        )
+                    if report.get("announce") or linked_count:
+                        body = [
+                            f"Linked automatically: {linked_count}",
+                            f"  Exact Nexus file: {len(exact)}",
+                            f"  Mod page linked / baseline unknown: {len(page)}",
+                            f"Still unresolved: {len(unresolved)}",
+                        ]
+                        if page:
+                            body.extend([
+                                "",
+                                "Mods with an unknown historical file baseline are still Nexus-linked. "
+                                "Update All will offer the latest main file and establish exact tracking after that update.",
+                            ])
+                        if unresolved:
+                            body.extend([
+                                "",
+                                "Unresolved mods were left untouched rather than guessed. "
+                                "Advanced Mode keeps a manual-link fallback for unusual names.",
+                            ])
+                        messagebox.showinfo("Nexus Auto-Link", "\n".join(body))
                 elif kind == "repair_complete":
                     report, launch_after = payload
                     build = report.get("build_id") or read_steam_build_id(self.game_dir) or "unknown"
