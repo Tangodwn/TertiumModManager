@@ -1016,6 +1016,34 @@ def test_modded_launch_preflight_blocks_missing_required_dependency():
         assert report["reconcile"]["adopted_count"] == 1
 
 
+def test_modded_launch_preflight_writes_enabled_mods_and_removes_disabled_entries():
+    from core import modded_launch_preflight
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        game = root / "game"
+        (game / "bundle").mkdir(parents=True)
+        (game / "binaries").mkdir()
+        for folder, logical in (("Alpha", "Alpha"), ("_Bravo", "Bravo"), ("dmf", "dmf")):
+            mod = game / "mods" / folder
+            mod.mkdir(parents=True)
+            (mod / f"{logical}.mod").write_text("return { packages = {} }", encoding="utf-8")
+        load_order = game / "mods" / "mod_load_order.txt"
+        load_order.write_text("-- user comment\nBravo\nAlpha\nStaleMod\n", encoding="utf-8")
+        store = RegistryStore(root / "state")
+
+        report = modded_launch_preflight(game, store)
+
+        assert report["load_order_managed_by_tertium"] is True
+        assert report["load_order_entries"] == ["Alpha"]
+        text = load_order.read_text(encoding="utf-8")
+        assert "-- user comment" in text
+        assert "Alpha" in text
+        assert "Bravo" not in text
+        assert "StaleMod" not in text
+        assert "dmf" not in text.casefold()
+        assert not any("missing from mod_load_order" in str(x.get("message")) for x in report["blockers"])
+
+
 def test_guardian_automation_is_wired_into_refresh_and_modded_launch():
     root = Path(__file__).resolve().parents[1]
     source = (root / "app.py").read_text(encoding="utf-8")
