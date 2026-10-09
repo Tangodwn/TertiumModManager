@@ -2577,16 +2577,21 @@ class TertiumApp:
             return
         enabled_now = values[0] == "✓"
         try:
+            logical_name = folder.lstrip("_")
             new_name = toggle_mod_folder(self.game_dir, folder, not enabled_now)
+            if not enabled_now:
+                cleared = self.compatibility.clear_quarantine(logical_name)
+                if cleared:
+                    self.log_line(
+                        f"User re-enabled {logical_name}; cleared {cleared} crash quarantine record(s)."
+                    )
             sync_registry_folders(self.game_dir, self.store)
             self.log_line(f"{'Enabled' if not enabled_now else 'Disabled'} {new_name.lstrip('_')}")
-            # If AML is not tracked, maintain mod_load_order.txt too.
-            if not self.store.get(AML_MOD_ID):
-                enabled = [
-                    m["logical_name"] for m in scan_installed_mods(self.game_dir)
-                    if m["enabled"] and m["logical_name"].lower() != "dmf"
-                ]
-                write_mod_load_order(self.game_dir, enabled)
+            enabled = [
+                m["logical_name"] for m in scan_installed_mods(self.game_dir)
+                if m["enabled"] and m["logical_name"].lower() != "dmf"
+            ]
+            write_mod_load_order(self.game_dir, enabled)
             self.refresh()
         except Exception as exc:
             messagebox.showerror("Toggle mod", str(exc))
@@ -2643,17 +2648,23 @@ class TertiumApp:
             return
         try:
             rec = self._record_for_folder(folder)
+            logical_name = folder.lstrip("_")
             backup = quarantine_mod_folder(self.game_dir, folder, self.store, record=rec)
             if rec:
                 self.store.remove_mod(rec.mod_id)
-            if self.store.get(AML_MOD_ID) is None:
-                enabled = [
-                    m["logical_name"] for m in scan_installed_mods(self.game_dir)
-                    if m["enabled"] and m["logical_name"].lower() != "dmf"
-                ]
-                write_mod_load_order(self.game_dir, enabled)
-            self.log_line(f"Removed {name} to reversible backup: {backup.name}")
+            cleared = self.compatibility.clear_quarantine(logical_name)
+            enabled = [
+                m["logical_name"] for m in scan_installed_mods(self.game_dir)
+                if m["enabled"] and m["logical_name"].lower() != "dmf"
+            ]
+            write_mod_load_order(self.game_dir, enabled)
+            if cleared:
+                self.log_line(
+                    f"Removed {name}; cleared {cleared} crash quarantine record(s) so a future reinstall is not auto-disabled."
+                )
+            self.log_line(f"Removed {name} from Darktide and moved it to reversible backup: {backup.name}")
             self.refresh()
+            self._refresh_crash_guard()
         except Exception as exc:
             messagebox.showerror("Remove mod", str(exc))
 
