@@ -86,3 +86,17 @@ def test_mod_install_always_updates_load_order():
     assert 'if record.mod_id not in {DMF_MOD_ID, AML_MOD_ID}:' in method
     assert 'write_mod_load_order(self.game_dir, enabled)' in method
     assert 'Updated mod_load_order.txt' in method
+
+
+def test_reenabled_mod_ignores_stale_crash_until_fresh_failure():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "def _arm_crash_retest" in source
+    assert "def _crash_retest_cutoff" in source
+    refresh = source[source.index("    def _refresh_crash_guard"):source.index("    def _remember_handled_crash")]
+    assert "was explicitly re-enabled for testing" in refresh
+    assert "float(finding.get(\"mtime\") or 0.0) <= retest_after" in refresh
+    toggle = source[source.index("    def toggle_selected"):source.index("    def rollback_selected_update")]
+    assert "self._arm_crash_retest(logical_name)" in toggle
+    quarantine = source[source.index("    def _quarantine_candidate"):source.index("    def disable_crash_suspect_and_retry")]
+    assert "self._clear_crash_retest(logical_name)" in quarantine
