@@ -1,2 +1,2 @@
-__version__ = "0.8.20"
-RELEASE_NAME = "Crash Guard Delete"
+__version__ = "0.8.21"
+RELEASE_NAME = "Auto Load Order"
