@@ -53,3 +53,14 @@ def test_user_can_override_or_remove_crash_quarantine():
     assert "self.compatibility.clear_quarantine(logical_name)" in remove
     assert "write_mod_load_order(self.game_dir, enabled)" in remove
     assert "self._refresh_crash_guard()" in remove
+
+
+def test_reenabled_quarantine_rearms_crash_detection():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "def _undismiss_crash_signatures_for_mod" in source
+    assert "def _learned_crash_candidate" in source
+    refresh = source[source.index("    def _refresh_crash_guard"):source.index("    def _remember_handled_crash")]
+    assert "learned-crash-signature" in refresh
+    toggle = source[source.index("    def toggle_selected"):source.index("    def rollback_selected_update")]
+    assert "_undismiss_crash_signatures_for_mod(logical_name)" in toggle
