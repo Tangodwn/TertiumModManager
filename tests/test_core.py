@@ -1127,7 +1127,8 @@ def test_link_local_record_to_nexus_refuses_duplicate_nexus_target():
 def test_existing_mod_linker_ui_contract():
     root = Path(__file__).resolve().parents[1]
     source = (root / "app.py").read_text(encoding="utf-8")
-    assert "Link Existing to Nexus" in source
+    assert "Auto-Link Existing" in source
+    assert "Link Selected Manually" in source
     assert "def link_selected_existing_mod" in source
     assert "def _prepare_existing_mod_link_from_nxm" in source
     assert "pending_existing_link_local_id" in source
@@ -1176,5 +1177,5 @@ def test_auto_nexus_reconciliation_source_contract():
     assert "nexus-catalog-" in source
     assert "24 * 60 * 60" in source
     # Manual linking remains a fallback, not the normal simple-mode workflow.
-    simple_block = source[source.index("if simple:"):source.index("else:", source.index("if simple:"))]
-    assert "self.manual_link_button.pack_forget()" in simple_block
+    assert "self.manual_link_button.pack_forget()" in source
+    assert "self.manual_link_button.pack(side=LEFT" in source
