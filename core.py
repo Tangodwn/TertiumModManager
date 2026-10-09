@@ -288,6 +288,32 @@ class CompatibilityStore:
         self.save_all(rows)
         return dict(row)
 
+    def clear_quarantine(self, logical_name: str, build_id: str | None = None, mod_version: str | None = None) -> int:
+        """Clear quarantine flags for a mod after an explicit user override/removal.
+
+        When build/version are omitted, every stored quarantine for that logical
+        mod name is cleared. Crash evidence is retained for diagnostics.
+        """
+        wanted = logical_name.strip().lower()
+        rows = self.all()
+        changed = 0
+        for row in rows:
+            if str(row.get("logical_name") or "").strip().lower() != wanted:
+                continue
+            if build_id is not None and str(row.get("build_id") or "") != str(build_id or ""):
+                continue
+            if mod_version is not None and str(row.get("mod_version") or "") != str(mod_version or ""):
+                continue
+            if row.get("quarantined"):
+                row["quarantined"] = False
+                row["quarantine_reason"] = "Cleared by explicit user action."
+                row["quarantine_changed_at"] = time.time()
+                changed += 1
+        if changed:
+            self.save_all(rows)
+        return changed
+
+
 class ProfileStore:
     def __init__(self, root: Path | None = None):
         self.root = root or app_data_dir()
