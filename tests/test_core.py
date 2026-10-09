@@ -1223,3 +1223,29 @@ def test_explicit_quarantine_clear_preserves_crash_evidence():
         row = store.get("NumericUI", "100", "1.0")
         assert row["quarantined"] is False
         assert row["evidence_count"] == 1
+
+
+def test_learned_crash_candidate_matches_same_build_version_and_error():
+    from core import CompatibilityStore
+    with tempfile.TemporaryDirectory() as td:
+        store = CompatibilityStore(Path(td))
+        store.record_crash("NumericUI", "100", "1.0", "sig-a", "player_husk_data_extension.lua:277: attempt to index local 'field' (a nil value)", "console.log")
+        learned = store.learned_candidates_for_error(
+            "player_husk_data_extension.lua:277: attempt to index local 'field' (a nil value)",
+            "100",
+            {"numericui": "1.0"},
+        )
+        assert len(learned) == 1
+        assert learned[0]["logical_name"] == "NumericUI"
+        assert learned[0]["confidence"] == "high"
+
+        assert store.learned_candidates_for_error(
+            "player_husk_data_extension.lua:277: attempt to index local 'field' (a nil value)",
+            "101",
+            {"numericui": "1.0"},
+        ) == []
+        assert store.learned_candidates_for_error(
+            "player_husk_data_extension.lua:277: attempt to index local 'field' (a nil value)",
+            "100",
+            {"numericui": "2.0"},
+        ) == []
