@@ -1070,7 +1070,8 @@ def test_github_windows_ci_and_release_workflows_are_present():
     assert 'python-version: ["3.11", "3.12", "3.13"]' in ci
     assert 'tags: ["v*"]' in release
     assert "Verify release tag matches VERSION" in release
-    assert "-InstallerOnly -SkipTests" in release
+    assert "./scripts/build_windows_release.ps1 -SkipTests" in release
+    assert "Portable-x64.zip" in release
     assert "TertiumModManager-Setup-x64.exe.sha256" in release
     # Normal release assets deliberately exclude the portable ZIP.
     publish = release[release.index("Publish GitHub release assets"):]
