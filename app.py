@@ -1154,6 +1154,50 @@ class TertiumApp:
             self.config["crash_retest_after"] = rows
             self._save_config()
 
+    def _recent_change_crash_candidates(self, finding: dict) -> list[dict]:
+        """Rank recently installed/updated enabled mods as conservative crash suspects.
+
+        This is fallback evidence only. It never outranks a direct stack-path match
+        or a learned same-build/same-version crash signature.
+        """
+        if not self.game_dir:
+            return []
+        crash_time = float(finding.get("mtime") or 0.0)
+        if crash_time <= 0:
+            return []
+        installed_now = {
+            str(item.get("logical_name") or "").casefold(): bool(item.get("enabled"))
+            for item in scan_installed_mods(self.game_dir)
+        }
+        candidates: list[dict] = []
+        for record in self.store.all():
+            if record.mod_id in {DML_MOD_ID, DMF_MOD_ID, AML_MOD_ID}:
+                continue
+            logicals = [str(folder).lstrip("_") for folder in (record.folders or []) if str(folder).lstrip("_")]
+            logical = logicals[0] if logicals else str(record.name or "")
+            if not logical or not installed_now.get(logical.casefold(), False):
+                continue
+            changed_at = float(record.installed_at or 0.0)
+            age = crash_time - changed_at
+            if age < -30.0 or age > 2 * 60 * 60:
+                continue
+            if age <= 20 * 60:
+                score, confidence = 70, "medium"
+            elif age <= 60 * 60:
+                score, confidence = 55, "medium"
+            else:
+                score, confidence = 35, "low"
+            candidates.append({
+                "logical_name": logical,
+                "score": score,
+                "confidence": confidence,
+                "source": "recent-install-or-update",
+                "changed_at": changed_at,
+                "age_seconds": max(0.0, age),
+            })
+        candidates.sort(key=lambda item: (-int(item.get("score") or 0), float(item.get("age_seconds") or 0.0)))
+        return candidates[:4]
+
     def _refresh_crash_guard(self) -> dict | None:
         if not self.game_dir or not validate_game_dir(self.game_dir)[0]:
             self.recent_crash_finding = None
@@ -1193,6 +1237,27 @@ class TertiumApp:
                     f"Crash Guard learned match: repeated error pattern maps to {learned.get('logical_name')} "
                     "for this Darktide build/mod version."
                 )
+
+        if not candidate or str(candidate.get("confidence") or "").lower() == "low":
+            recent = self._recent_change_crash_candidates(finding)
+            if recent:
+                existing = {
+                    str(item.get("logical_name") or "").casefold()
+                    for item in (finding.get("candidates") or [])
+                    if isinstance(item, dict)
+                }
+                additions = [
+                    item for item in recent
+                    if str(item.get("logical_name") or "").casefold() not in existing
+                ]
+                if additions:
+                    finding["candidates"] = [*list(finding.get("candidates") or []), *additions]
+                    candidate = self._primary_crash_candidate(finding)
+                    top_recent = additions[0]
+                    self.log_line(
+                        f"Crash Guard context: {top_recent.get('logical_name')} was installed or updated "
+                        "shortly before this crash; treating it as supporting evidence only."
+                    )
 
         if candidate:
             candidate_name = str(candidate.get("logical_name") or "")
@@ -1251,9 +1316,15 @@ class TertiumApp:
                         f"Darktide crashed during the last modded session. {name} appears in the crash stack and is the likely cause."
                     )
             else:
-                self.crash_notice_var.set(
-                    f"Darktide crashed. {name} is a {confidence}-confidence suspect; review details before disabling it."
-                )
+                if str(candidate.get("source") or "") == "recent-install-or-update":
+                    self.crash_notice_var.set(
+                        f"Darktide crashed. {name} was installed or updated shortly before the crash and is a "
+                        f"{confidence}-confidence suspect. Tertium will not auto-blame it without stronger evidence."
+                    )
+                else:
+                    self.crash_notice_var.set(
+                        f"Darktide crashed. {name} is a {confidence}-confidence suspect; review details before disabling it."
+                    )
             self._set_crash_guard_actions(candidate, finding, quarantined=quarantined)
         else:
             self.crash_notice_var.set(
@@ -1398,9 +1469,10 @@ class TertiumApp:
         for item in candidates[:5]:
             if not isinstance(item, dict):
                 continue
+            source = str(item.get("source") or "stack/log context").replace("-", " ")
             candidate_lines.append(
                 f"- {item.get('logical_name') or 'Unknown'}: {item.get('confidence') or 'unknown'} "
-                f"confidence (score {item.get('score') or 0})"
+                f"confidence (score {item.get('score') or 0}; evidence: {source})"
             )
         body = [
             f"Log: {finding.get('log_name') or 'unknown'}",
