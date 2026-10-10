@@ -34,8 +34,8 @@ Name: "nxmhandler"; Description: "Use Tertium for Nexus Mod Manager Download lin
 Source: "..\dist\TertiumModManager\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\tertium_t.ico"
-Name: "{autodesktop}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\tertium_t.ico"; Tasks: desktopicon
+Name: "{group}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\tertium_desktop_v3.ico"
+Name: "{autodesktop}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\tertium_desktop_v3.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\nxm"; ValueType: string; ValueName: ""; ValueData: "URL:Nexus Mods Protocol"; Flags: uninsdeletekey; Tasks: nxmhandler
