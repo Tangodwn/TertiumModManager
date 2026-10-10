@@ -215,3 +215,18 @@ def test_recovery_paths_always_rewrite_load_order():
     assert "write_mod_load_order(self.game_dir, enabled)" in restored
     assert "self.store.get(AML_MOD_ID) is None" not in rollback
     assert "write_mod_load_order(self.game_dir, enabled)" in rollback
+
+
+def test_live_launch_state_and_updater_status_tools():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert 'self.launch_state_text = StringVar(value="Launch state: checking…")' in source
+    assert 'darktide_launcher_process(self.game_dir)' in source
+    assert 'Launch state: Darktide is running' in source
+    assert 'Launch state: Darktide launcher is open' in source
+    assert 'Launch state: ready' in source
+    assert 'def _refresh_last_update_status' in source
+    assert 'def open_update_log' in source
+    assert 'def clean_update_cache' in source
+    assert 'text="Open Update Log"' in source
+    assert 'text="Clean Update Cache"' in source
