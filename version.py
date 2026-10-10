@@ -1,2 +1,2 @@
-__version__ = "0.8.32"
-RELEASE_NAME = "Smart Launcher Reuse"
+__version__ = "0.8.33"
+RELEASE_NAME = "Launch State & Update Health"
