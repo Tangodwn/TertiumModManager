@@ -1,2 +1,2 @@
-__version__ = "0.8.24"
-RELEASE_NAME = "Themed Tab Banners"
+__version__ = "0.8.25"
+RELEASE_NAME = "Illustrated Tab Banners"
