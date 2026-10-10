@@ -36,6 +36,7 @@ from core import (
     cleanup_stale_download_parts,
     audit_mod_structure,
     detect_darktide_install,
+    darktide_launcher_process,
     health_report,
     restore_latest_safe_mode,
     restore_latest_mod_state,
@@ -86,9 +87,11 @@ from official_news import OFFICIAL_NEWS_URL, cached_official_news, fetch_officia
 from self_update import (
     ReleaseInfo,
     SelfUpdateError,
+    cleanup_update_cache,
     download_update_package,
     fetch_latest_release,
     is_newer_version,
+    last_update_result,
     schedule_windows_package_update,
     update_cache_dir,
     verify_update_package,
@@ -172,6 +175,7 @@ class TertiumApp:
         self.news_date_var = StringVar(value="Checking Steam…")
         self.app_update_text = StringVar(value=f"Tertium v{APP_VERSION} · Check for Update")
         self.app_update_status = StringVar(value="Application updates: not checked")
+        self.launch_state_text = StringVar(value="Launch state: checking…")
         self.available_app_release: ReleaseInfo | None = None
         self.news_url = OFFICIAL_NEWS_URL
         self.mod_count_text = StringVar(value="0 mods")
@@ -612,6 +616,7 @@ class TertiumApp:
         ttk.Label(status_card, textvariable=self.dashboard_mods, style="StatusGood.TLabel").pack(anchor="w")
         ttk.Label(status_card, textvariable=self.dashboard_build, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
         ttk.Label(status_card, textvariable=self.dashboard_updates, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
+        ttk.Label(status_card, textvariable=self.launch_state_text, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
 
         crash_card = ttk.LabelFrame(action_side, text=" Crash Guard ", style="DangerCard.TLabelframe", padding=10)
         crash_card.pack(fill=X, pady=(0, 8))
@@ -842,7 +847,13 @@ class TertiumApp:
 
         app_update_box = ttk.LabelFrame(settings_tab, text=" Tertium Updates ", style="Card.TLabelframe", padding=12)
         app_update_box.pack(fill=X, pady=(10, 0))
-        ttk.Label(app_update_box, textvariable=self.app_update_status, wraplength=900, justify="left").pack(side=LEFT, fill=X, expand=True)
+        update_status_side = ttk.Frame(app_update_box)
+        update_status_side.pack(side=LEFT, fill=X, expand=True)
+        ttk.Label(update_status_side, textvariable=self.app_update_status, wraplength=760, justify="left").pack(anchor="w")
+        update_tools = ttk.Frame(update_status_side)
+        update_tools.pack(anchor="w", pady=(7, 0))
+        ttk.Button(update_tools, text="Open Update Log", command=self.open_update_log).pack(side=LEFT, padx=(0, 6))
+        ttk.Button(update_tools, text="Clean Update Cache", command=self.clean_update_cache).pack(side=LEFT)
         ttk.Button(app_update_box, textvariable=self.app_update_text, command=self.check_or_install_app_update).pack(side=RIGHT, padx=(12, 0))
 
         # TOOLS / DIAGNOSTICS TAB
@@ -908,6 +919,7 @@ class TertiumApp:
             pass
 
     def _initial_setup(self) -> None:
+        self._refresh_last_update_status()
         cleaned = cleanup_stale_download_parts(self.store)
         if cleaned.get("removed"):
             self.log_line(
@@ -1412,6 +1424,15 @@ class TertiumApp:
     def _poll_game_session(self) -> None:
         try:
             running = is_darktide_running()
+            launcher = darktide_launcher_process(self.game_dir) if self.game_dir else None
+            if running:
+                self.launch_state_text.set("Launch state: Darktide is running")
+            elif launcher:
+                self.launch_state_text.set("Launch state: Darktide launcher is open")
+            elif self.game_dir:
+                self.launch_state_text.set("Launch state: ready")
+            else:
+                self.launch_state_text.set("Launch state: Darktide folder not configured")
             if self._last_running_state and not running:
                 self.log_line("Darktide session ended; checking the newest session log.")
                 self.refresh()
@@ -1633,6 +1654,50 @@ class TertiumApp:
         if auto:
             lines.extend(["", "This welcome appears only on first run. You can reopen it with Getting Started."])
         messagebox.showinfo("Getting Started", "\n".join(lines))
+
+    def _refresh_last_update_status(self) -> None:
+        result = last_update_result()
+        state = str(result.get("state") or "unknown")
+        message = str(result.get("message") or "")
+        if state == "success":
+            self.app_update_status.set(f"Updater: last update succeeded. {message}")
+        elif state in {"failed", "rollback_failed"}:
+            self.app_update_status.set(f"Updater attention: {message}")
+        elif state == "incomplete":
+            self.app_update_status.set(f"Updater: previous attempt may be incomplete. {message}")
+        elif state == "none":
+            self.app_update_status.set("Application updates: not checked · no prior in-app update recorded.")
+        else:
+            self.app_update_status.set(f"Updater status: {message}")
+
+    def open_update_log(self) -> None:
+        path = update_cache_dir() / "last-update.log"
+        if not path.exists():
+            messagebox.showinfo("Tertium Update Log", "No in-app update log exists yet.")
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(path)  # type: ignore[attr-defined]
+            else:
+                webbrowser.open(path.as_uri())
+        except Exception as exc:
+            messagebox.showerror("Tertium Update Log", str(exc))
+
+    def clean_update_cache(self) -> None:
+        try:
+            result = cleanup_update_cache(keep_log=True)
+            self.log_line(
+                f"Cleaned Tertium update cache: {result['removed']} item(s), "
+                f"{result['freed'] / 1024**2:.1f} MiB freed."
+            )
+            messagebox.showinfo(
+                "Update Cache",
+                f"Removed {result['removed']} stale update item(s) and freed "
+                f"{result['freed'] / 1024**2:.1f} MiB. The latest update log was kept.",
+            )
+            self._refresh_last_update_status()
+        except Exception as exc:
+            messagebox.showerror("Update Cache", str(exc))
 
     def check_or_install_app_update(self) -> None:
         release = self.available_app_release
