@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(0, 8, 28, 0),
-    prodvers=(0, 8, 28, 0),
+    filevers=(0, 8, 29, 0),
+    prodvers=(0, 8, 29, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'Tertium Mod Manager Community Project'),
           StringStruct('FileDescription', 'Tertium Mod Manager for Warhammer 40,000: Darktide'),
-          StringStruct('FileVersion', '0.8.28'),
+          StringStruct('FileVersion', '0.8.29'),
           StringStruct('InternalName', 'TertiumModManager'),
           StringStruct('LegalCopyright', 'MIT License'),
           StringStruct('OriginalFilename', 'TertiumModManager.exe'),
           StringStruct('ProductName', 'Tertium Mod Manager'),
-          StringStruct('ProductVersion', '0.8.28')
+          StringStruct('ProductVersion', '0.8.29')
         ]
       )
     ]),
