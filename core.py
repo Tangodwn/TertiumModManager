@@ -530,22 +530,22 @@ def _hidden_subprocess_kwargs() -> dict:
         kwargs["startupinfo"] = startupinfo
     return kwargs
 
-def _windows_process_image_names() -> set[str]:
-    """Enumerate running Windows process image names without spawning a console helper.
+def _windows_process_entries() -> list[tuple[str, int, str | None]]:
+    """Enumerate Windows processes as (image_name, pid, executable_path).
 
-    Guardian originally polled ``tasklist.exe`` every few seconds. Even with hidden
-    startup flags, a windowed/frozen application can briefly surface or focus a
-    console process on some Windows systems. Using Toolhelp32 directly avoids any
-    child process, terminal flash, or focus-stealing side effect.
+    Uses Toolhelp32 and QueryFullProcessImageNameW directly so Tertium never
+    spawns tasklist.exe or another console helper. Executable paths are best
+    effort because some protected processes cannot be queried.
     """
     if os.name != "nt":
-        return set()
+        return []
 
     import ctypes
     from ctypes import wintypes
 
     TH32CS_SNAPPROCESS = 0x00000002
-    MAX_PATH = 260
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    MAX_PATH = 32768
 
     class PROCESSENTRY32W(ctypes.Structure):
         _fields_ = [
@@ -558,7 +558,7 @@ def _windows_process_image_names() -> set[str]:
             ("th32ParentProcessID", wintypes.DWORD),
             ("pcPriClassBase", wintypes.LONG),
             ("dwFlags", wintypes.DWORD),
-            ("szExeFile", wintypes.WCHAR * MAX_PATH),
+            ("szExeFile", wintypes.WCHAR * 260),
         ]
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -571,6 +571,12 @@ def _windows_process_image_names() -> set[str]:
     process_next = kernel32.Process32NextW
     process_next.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
     process_next.restype = wintypes.BOOL
+    open_process = kernel32.OpenProcess
+    open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    open_process.restype = wintypes.HANDLE
+    query_image = kernel32.QueryFullProcessImageNameW
+    query_image.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    query_image.restype = wintypes.BOOL
     close_handle = kernel32.CloseHandle
     close_handle.argtypes = [wintypes.HANDLE]
     close_handle.restype = wintypes.BOOL
@@ -578,22 +584,39 @@ def _windows_process_image_names() -> set[str]:
     snapshot = create_snapshot(TH32CS_SNAPPROCESS, 0)
     invalid_handle = ctypes.c_void_p(-1).value
     if snapshot in (None, 0, invalid_handle):
-        return set()
+        return []
 
-    names: set[str] = set()
+    entries: list[tuple[str, int, str | None]] = []
     try:
         entry = PROCESSENTRY32W()
         entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
         if not process_first(snapshot, ctypes.byref(entry)):
-            return names
+            return entries
         while True:
-            if entry.szExeFile:
-                names.add(str(entry.szExeFile).casefold())
+            name = str(entry.szExeFile).casefold() if entry.szExeFile else ""
+            pid = int(entry.th32ProcessID)
+            exe_path: str | None = None
+            handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle:
+                try:
+                    size = wintypes.DWORD(MAX_PATH)
+                    buf = ctypes.create_unicode_buffer(MAX_PATH)
+                    if query_image(handle, 0, buf, ctypes.byref(size)):
+                        exe_path = str(buf.value)
+                finally:
+                    close_handle(handle)
+            if name:
+                entries.append((name, pid, exe_path))
             if not process_next(snapshot, ctypes.byref(entry)):
                 break
-        return names
+        return entries
     finally:
         close_handle(snapshot)
+
+
+def _windows_process_image_names() -> set[str]:
+    """Return running process image names without spawning a console helper."""
+    return {name for name, _pid, _path in _windows_process_entries()}
 
 
 def is_darktide_running() -> bool:
@@ -603,23 +626,72 @@ def is_darktide_running() -> bool:
     try:
         return "darktide.exe" in _windows_process_image_names()
     except Exception:
-        # Failure to query processes should not brick the manager; file operations
-        # still have their own normal OS locking semantics.
         return False
 
 
-def is_darktide_launcher_running() -> bool:
-    """Return True when the Fatshark Darktide launcher is already open.
+def darktide_launcher_process(game_dir: Path) -> tuple[int, str | None] | None:
+    """Return the matching Fatshark launcher process for this Darktide install."""
+    if os.name != "nt":
+        return None
+    expected = (game_dir / "launcher" / "Launcher.exe").resolve()
+    try:
+        fallback: tuple[int, str | None] | None = None
+        for name, pid, exe_path in _windows_process_entries():
+            if name != "launcher.exe":
+                continue
+            if exe_path:
+                try:
+                    if Path(exe_path).resolve() == expected:
+                        return pid, exe_path
+                except OSError:
+                    pass
+            elif fallback is None:
+                # Path lookup can fail for a protected process. Keep one
+                # best-effort fallback rather than starting a duplicate blindly.
+                fallback = (pid, exe_path)
+        return fallback
+    except Exception:
+        return None
 
-    Starting a second Launcher.exe can make both instances contend for
-    darktide_launcher.log and Fatshark's launcher then fails with IOException
-    (sharing violation / file in use). Tertium therefore treats an existing
-    launcher as an active launch session and never starts another copy.
-    """
+
+def is_darktide_launcher_running(game_dir: Path) -> bool:
+    return darktide_launcher_process(game_dir) is not None
+
+
+def activate_process_window(pid: int) -> bool:
+    """Best-effort foreground activation for an already-running Windows process."""
     if os.name != "nt":
         return False
     try:
-        return "launcher.exe" in _windows_process_image_names()
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        enum_windows = user32.EnumWindows
+        get_pid = user32.GetWindowThreadProcessId
+        is_visible = user32.IsWindowVisible
+        show_window = user32.ShowWindow
+        set_foreground = user32.SetForegroundWindow
+        SW_RESTORE = 9
+        target = {"hwnd": None}
+
+        CALLBACK = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        @CALLBACK
+        def callback(hwnd, _lparam):
+            proc_id = wintypes.DWORD()
+            get_pid(hwnd, ctypes.byref(proc_id))
+            if int(proc_id.value) == int(pid) and is_visible(hwnd):
+                target["hwnd"] = hwnd
+                return False
+            return True
+
+        enum_windows(callback, 0)
+        hwnd = target["hwnd"]
+        if not hwnd:
+            return False
+        show_window(hwnd, SW_RESTORE)
+        return bool(set_foreground(hwnd))
     except Exception:
         return False
 
@@ -2749,14 +2821,13 @@ def open_game_launcher(game_dir: Path) -> None:
         raise ModManagerError("Darktide is already running.")
 
     # Fatshark's launcher opens darktide_launcher.log with restrictive sharing.
-    # A second launcher process can therefore crash immediately with
-    # System.IO.IOException. Never create a duplicate launcher instance.
-    if is_darktide_launcher_running():
-        raise ModManagerError(
-            "The Darktide launcher is already running. Bring the existing launcher "
-            "to the foreground or close it before launching again. Tertium blocked "
-            "a second copy to prevent darktide_launcher.log from being locked."
-        )
+    # If the matching launcher for this install is already open, reuse it instead
+    # of spawning another copy and risking a sharing-violation IOException.
+    existing = darktide_launcher_process(game_dir)
+    if existing:
+        pid, _path = existing
+        activate_process_window(pid)
+        return
 
     launcher = game_dir / "launcher" / "Launcher.exe"
     if launcher.exists():
