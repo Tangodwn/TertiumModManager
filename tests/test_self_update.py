@@ -102,3 +102,16 @@ def test_package_updater_does_not_execute_downloaded_installer():
     assert "last-update.log" in fn
     assert "Start-Process -FilePath $restart" in fn
     assert "Start-Process -FilePath $installer" not in fn
+
+
+def test_last_update_result_and_cache_cleanup_contract():
+    import inspect
+    import self_update
+
+    result_src = inspect.getsource(self_update.last_update_result)
+    cleanup_src = inspect.getsource(self_update.cleanup_update_cache)
+    assert "last-update.log" in result_src
+    assert "FAILED:" in result_src
+    assert "Restart requested" in result_src
+    assert "keep_log" in cleanup_src
+    assert "last-update.log" in cleanup_src
