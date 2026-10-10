@@ -198,3 +198,20 @@ def test_startup_repairs_cached_windows_shortcut_icon():
     assert "tertium_desktop_v3.ico" in installer
     assert 'tertium_desktop_v3.ico"), ".")' in spec
     assert (root / "assets" / "tertium_desktop_v3.ico").exists()
+
+
+def test_recovery_paths_always_rewrite_load_order():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+
+    profile = source[source.index("    def apply_selected_profile"):source.index("    def delete_selected_profile")]
+    safe = source[source.index("    def enter_safe_mode"):source.index("    def export_setup")]
+    restored = source[source.index("    def restore_removed_mod"):source.index("    def open_data_folder")]
+    rollback = source[source.index("    def rollback_selected_update"):source.index("    def remove_selected")]
+
+    assert "maintain_load_order=True" in profile
+    assert "maintain_load_order=True" in safe
+    assert "self.store.get(AML_MOD_ID) is None" not in restored
+    assert "write_mod_load_order(self.game_dir, enabled)" in restored
+    assert "self.store.get(AML_MOD_ID) is None" not in rollback
+    assert "write_mod_load_order(self.game_dir, enabled)" in rollback
