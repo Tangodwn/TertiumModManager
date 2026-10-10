@@ -306,7 +306,7 @@ def test_windows_process_enumerator_is_native_no_subprocess():
     import inspect
     import core
 
-    source = inspect.getsource(core._windows_process_image_names)
+    source = inspect.getsource(core._windows_process_entries)
     assert "subprocess" not in source
     assert "CreateToolhelp32Snapshot" in source
     assert "Process32FirstW" in source
