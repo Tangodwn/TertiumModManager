@@ -93,7 +93,7 @@ from self_update import (
     update_cache_dir,
     verify_update_package,
 )
-from winutil import protect_secret, register_nxm_protocol, unprotect_secret
+from winutil import protect_secret, refresh_tertium_shortcuts, register_nxm_protocol, unprotect_secret
 from version import __version__, RELEASE_NAME
 
 APP_VERSION = __version__
@@ -188,8 +188,17 @@ class TertiumApp:
         self.root.after(100, self._drain_queue)
         self._last_running_state = False
         self.root.after(250, self._initial_setup)
+        self.root.after(450, self._refresh_windows_shortcuts)
         self.root.after(900, self._refresh_official_news_async)
         self.root.after(1500, self._poll_game_session)
+
+    def _refresh_windows_shortcuts(self) -> None:
+        try:
+            updated = refresh_tertium_shortcuts()
+            if updated:
+                self.log_line(f"Refreshed {len(updated)} Windows shortcut(s) with the Tertium T icon.")
+        except Exception as exc:
+            self.log_line(f"Shortcut icon refresh skipped: {exc}")
 
     def _handle_tk_exception(self, exc_type, exc, tb) -> None:
         detail = "".join(traceback.format_exception(exc_type, exc, tb))
