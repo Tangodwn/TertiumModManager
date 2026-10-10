@@ -4,6 +4,7 @@ import base64
 import ctypes
 import os
 import sys
+import subprocess
 from ctypes import wintypes
 from pathlib import Path
 
@@ -99,3 +100,62 @@ def nxm_protocol_command() -> str | None:
             return winreg.QueryValueEx(key, "")[0]
     except OSError:
         return None
+
+
+def refresh_tertium_shortcuts(icon_filename: str = "tertium_desktop_v3.ico") -> list[str]:
+    """Refresh existing Windows Tertium shortcuts to the current executable and icon.
+
+    Uses a versioned icon filename to bypass Explorer's stubborn icon cache.
+    Existing Desktop and Start Menu shortcuts are repaired in place.
+    """
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return []
+    install_dir = Path(sys.executable).resolve().parent
+    exe = install_dir / "TertiumModManager.exe"
+    icon = install_dir / icon_filename
+    if not exe.exists() or not icon.exists():
+        return []
+
+    def psq(value: str) -> str:
+        return value.replace("'", "''")
+
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$exe = '{psq(str(exe))}'
+$install = '{psq(str(install_dir))}'
+$icon = '{psq(str(icon))}'
+$shell = New-Object -ComObject WScript.Shell
+$paths = @()
+$desktop = [Environment]::GetFolderPath('Desktop')
+if ($desktop) {{ $paths += (Join-Path $desktop 'Tertium Mod Manager.lnk') }}
+$programs = [Environment]::GetFolderPath('Programs')
+if ($programs) {{ $paths += (Join-Path (Join-Path $programs 'Tertium Mod Manager') 'Tertium Mod Manager.lnk') }}
+$updated = @()
+foreach ($path in $paths) {{
+    if (Test-Path $path) {{
+        $sc = $shell.CreateShortcut($path)
+        $sc.TargetPath = $exe
+        $sc.WorkingDirectory = $install
+        $sc.IconLocation = $icon + ',0'
+        $sc.Save()
+        $updated += $path
+    }}
+}}
+$updated | ForEach-Object {{ Write-Output $_ }}
+"""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    proc = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        creationflags=flags,
+        timeout=15,
+        check=False,
+    )
+    try:
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
+    except Exception:
+        pass
+    if proc.returncode != 0:
+        return []
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
