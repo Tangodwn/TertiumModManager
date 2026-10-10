@@ -1257,10 +1257,22 @@ def test_darktide_launcher_guard_uses_native_process_enumerator():
     import inspect
     import core
 
-    source = inspect.getsource(core.is_darktide_launcher_running)
-    assert "_windows_process_image_names" in source
+    source = inspect.getsource(core.darktide_launcher_process)
+    assert "_windows_process_entries" in source
     assert '"launcher.exe"' in source
+    assert "Launcher.exe" in source
     launcher = inspect.getsource(core.open_game_launcher)
-    assert "is_darktide_launcher_running()" in launcher
+    assert "darktide_launcher_process(game_dir)" in launcher
+    assert "activate_process_window(pid)" in launcher
     assert "darktide_launcher.log" in launcher
     assert "subprocess.Popen" in launcher
+
+
+def test_windows_process_entries_are_native_no_console_helper():
+    import inspect
+    import core
+
+    source = inspect.getsource(core._windows_process_entries)
+    assert "subprocess" not in source
+    assert "CreateToolhelp32Snapshot" in source
+    assert "QueryFullProcessImageNameW" in source
