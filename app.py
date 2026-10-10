@@ -176,6 +176,7 @@ class TertiumApp:
         self.app_update_text = StringVar(value=f"Tertium v{APP_VERSION} · Check for Update")
         self.app_update_status = StringVar(value="Application updates: not checked")
         self.launch_state_text = StringVar(value="Launch state: checking…")
+        self.guided_update_status = StringVar(value="Update queue: idle")
         self.available_app_release: ReleaseInfo | None = None
         self.news_url = OFFICIAL_NEWS_URL
         self.mod_count_text = StringVar(value="0 mods")
@@ -617,6 +618,7 @@ class TertiumApp:
         ttk.Label(status_card, textvariable=self.dashboard_build, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
         ttk.Label(status_card, textvariable=self.dashboard_updates, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
         ttk.Label(status_card, textvariable=self.launch_state_text, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
+        ttk.Label(status_card, textvariable=self.guided_update_status, style="Muted.Panel.TLabel").pack(anchor="w", pady=(2, 0))
 
         crash_card = ttk.LabelFrame(action_side, text=" Crash Guard ", style="DangerCard.TLabelframe", padding=10)
         crash_card.pack(fill=X, pady=(0, 8))
@@ -920,6 +922,7 @@ class TertiumApp:
 
     def _initial_setup(self) -> None:
         self._refresh_last_update_status()
+        self._restore_guided_update_state()
         cleaned = cleanup_stale_download_parts(self.store)
         if cleaned.get("removed"):
             self.log_line(
@@ -2295,6 +2298,7 @@ class TertiumApp:
                 return
             self.guided_installing_mod_id = link.mod_id
             self.guided_waiting_mod_id = None
+            self.guided_update_status.set(self._guided_update_progress_text() + " · installing")
             self.log_line(f"Guided Update All: authorized {old.name}; installing now.")
 
         self._run_worker(lambda: self._download_and_install(link), f"Downloading Nexus mod {link.mod_id}…")
@@ -2552,6 +2556,64 @@ class TertiumApp:
                 )
         self.queue.put(("repair_complete", (report, launch_after)))
 
+    def _save_guided_update_state(self) -> None:
+        rows = []
+        for old, successor in self.guided_update_queue:
+            rows.append({"record": old.to_dict(), "successor": dict(successor)})
+        if rows:
+            self.config["guided_update_queue"] = rows
+        else:
+            self.config.pop("guided_update_queue", None)
+        self._save_config()
+
+    def _restore_guided_update_state(self) -> None:
+        raw = self.config.get("guided_update_queue")
+        restored: list[tuple[ModRecord, dict]] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                record_data = item.get("record")
+                successor = item.get("successor")
+                if not isinstance(record_data, dict) or not isinstance(successor, dict):
+                    continue
+                try:
+                    restored.append((ModRecord.from_dict(record_data), dict(successor)))
+                except Exception:
+                    continue
+        self.guided_update_queue = restored
+        self.guided_update_active = False
+        self.guided_waiting_mod_id = None
+        self.guided_installing_mod_id = None
+        if restored:
+            first = restored[0][0].name
+            self.guided_update_status.set(
+                f"Update queue: {len(restored)} paused · next: {first}"
+            )
+            self.log_line(
+                f"Restored paused guided Update All queue with {len(restored)} update(s) remaining."
+            )
+        else:
+            self.guided_update_status.set("Update queue: idle")
+
+    def _clear_guided_update_state(self) -> None:
+        self.guided_update_queue.clear()
+        self.guided_update_active = False
+        self.guided_waiting_mod_id = None
+        self.guided_installing_mod_id = None
+        self.config.pop("guided_update_queue", None)
+        self._save_config()
+        self.guided_update_status.set("Update queue: idle")
+
+    def _guided_update_progress_text(self) -> str:
+        remaining = len(self.guided_update_queue)
+        total = int(self.config.get("guided_update_total") or remaining or 0)
+        completed = max(0, total - remaining)
+        if remaining <= 0:
+            return "Update queue: idle"
+        current = self.guided_update_queue[0][0].name
+        return f"Update queue: {completed + 1}/{max(total, remaining)} · {current}"
+
     def update_all(self) -> None:
         if is_darktide_running():
             messagebox.showerror("Darktide is running", "Close Darktide before updating mods.")
@@ -2561,6 +2623,17 @@ class TertiumApp:
             return
         if not self.game_dir:
             messagebox.showerror("Setup", "Choose your Darktide game folder first.")
+            return
+        if self.guided_update_queue and not self.guided_update_active:
+            next_name = self.guided_update_queue[0][0].name
+            if messagebox.askyesno(
+                "Resume Update All",
+                f"{len(self.guided_update_queue)} guided update(s) are still paused from the previous session.\n\n"
+                f"Next: {next_name}\n\nResume that queue now?",
+            ):
+                self.guided_update_active = True
+                self._save_guided_update_state()
+                self._open_next_guided_update()
             return
         if not messagebox.askyesno(
             "Update all tracked mods",
@@ -2616,6 +2689,9 @@ class TertiumApp:
         self.guided_update_active = bool(updates)
         self.guided_waiting_mod_id = None
         self.guided_installing_mod_id = None
+        self.config["guided_update_total"] = len(updates)
+        self._save_guided_update_state()
+        self.guided_update_status.set(self._guided_update_progress_text())
         if not updates:
             return
         messagebox.showinfo(
@@ -2632,8 +2708,9 @@ class TertiumApp:
         if self.worker_active or self.guided_installing_mod_id is not None:
             return
         if not self.guided_update_queue:
-            self.guided_update_active = False
-            self.guided_waiting_mod_id = None
+            self._clear_guided_update_state()
+            self.config.pop("guided_update_total", None)
+            self._save_config()
             self.status.set("Ready")
             self.update_ids.clear()
             self.update_map.clear()
@@ -2643,6 +2720,7 @@ class TertiumApp:
         old, successor = self.guided_update_queue[0]
         file_id = int(successor.get("file_id") or 0)
         self.guided_waiting_mod_id = old.mod_id
+        self.guided_update_status.set(self._guided_update_progress_text())
         self.status.set(f"Waiting for Nexus authorization: {old.name}")
         self.log_line(
             f"Guided Update All: opening {old.name} (target file {file_id}). Click Mod Manager Download on Nexus."
@@ -3284,6 +3362,8 @@ class TertiumApp:
                         if self.guided_update_queue and self.guided_update_queue[0][0].mod_id == installed_id:
                             finished, _successor = self.guided_update_queue.pop(0)
                             self.log_line(f"Guided Update All: completed {finished.name}.")
+                            self._save_guided_update_state()
+                            self.guided_update_status.set(self._guided_update_progress_text())
                         self.guided_installing_mod_id = None
                     self.refresh()
                     self.root.after(50, self._process_pending_nxm)
@@ -3296,10 +3376,15 @@ class TertiumApp:
                     self.worker_active = False
                     self.status.set("Error")
                     if self.guided_installing_mod_id is not None:
-                        self.log_line("Guided Update All paused because the current update failed. Run Update All again after resolving the error.")
+                        self.log_line("Guided Update All paused because the current update failed. Run Update All again to resume from this mod.")
                         self.guided_update_active = False
                         self.guided_installing_mod_id = None
                         self.guided_waiting_mod_id = None
+                        self._save_guided_update_state()
+                        if self.guided_update_queue:
+                            self.guided_update_status.set(
+                                f"Update queue: {len(self.guided_update_queue)} paused · next: {self.guided_update_queue[0][0].name}"
+                            )
                     messagebox.showerror("Tertium Mod Manager", str(payload))
                     self.root.after(50, self._process_pending_nxm)
                 elif kind == "message":
