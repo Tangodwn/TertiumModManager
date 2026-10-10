@@ -206,6 +206,60 @@ def update_cache_dir() -> Path:
     return path
 
 
+def last_update_result() -> dict:
+    """Return a compact status summary for the most recent self-update attempt."""
+    log = update_cache_dir() / "last-update.log"
+    if not log.exists():
+        return {"state": "none", "message": "No in-app update has been applied yet.", "path": str(log)}
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return {"state": "unknown", "message": f"Update log could not be read: {exc}", "path": str(log)}
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if any(line.startswith("ROLLBACK FAILED:") for line in lines):
+        state = "rollback_failed"
+        message = next((line for line in reversed(lines) if line.startswith("ROLLBACK FAILED:")), "Rollback failed.")
+    elif any(line.startswith("FAILED:") for line in lines):
+        state = "failed"
+        message = next((line for line in reversed(lines) if line.startswith("FAILED:")), "Update failed and rollback was attempted.")
+    elif any("Restart requested" in line for line in lines):
+        state = "success"
+        message = "Last in-app update completed and restart was requested successfully."
+    else:
+        state = "incomplete"
+        message = lines[-1] if lines else "The last update log is incomplete."
+    return {"state": state, "message": message, "path": str(log)}
+
+
+def cleanup_update_cache(keep_log: bool = True) -> dict:
+    """Remove stale update packages/scripts/staging folders without touching the installed app."""
+    cache = update_cache_dir()
+    removed = 0
+    freed = 0
+    for item in list(cache.iterdir()):
+        if keep_log and item.name == "last-update.log":
+            continue
+        try:
+            if item.is_file():
+                freed += item.stat().st_size
+                item.unlink()
+            elif item.is_dir():
+                for child in item.rglob("*"):
+                    try:
+                        if child.is_file():
+                            freed += child.stat().st_size
+                    except OSError:
+                        pass
+                import shutil
+                shutil.rmtree(item, ignore_errors=False)
+            else:
+                continue
+            removed += 1
+        except OSError:
+            continue
+    return {"removed": removed, "freed": freed, "path": str(cache)}
+
+
 def installed_executable() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve()
