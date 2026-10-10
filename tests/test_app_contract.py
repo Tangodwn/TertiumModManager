@@ -158,3 +158,16 @@ def test_settings_and_tools_are_separate_tabs():
     assert 'settings_top = ttk.Frame(settings_tab)' in source
     assert 'diag = ttk.LabelFrame(tools_tab' in source
     assert 'self.notebook.hide(self.tools_tab)' in source
+
+
+def test_shortcut_icon_refreshes_after_self_update():
+    root = Path(__file__).resolve().parents[1]
+    updater = (root / "self_update.py").read_text(encoding="utf-8")
+    installer = (root / "installer" / "TertiumModManager.iss").read_text(encoding="utf-8")
+    spec = (root / "TertiumModManager.spec").read_text(encoding="utf-8")
+    assert "tertium_t.ico" in updater
+    assert "WScript.Shell" in updater
+    assert "Shortcut icon refreshed" in updater
+    assert "tertium_t.ico" in installer
+    assert "tertium_t.ico" in spec
+    assert (root / "assets" / "tertium_t.ico").exists()
