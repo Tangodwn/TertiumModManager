@@ -171,3 +171,14 @@ def test_shortcut_icon_refreshes_after_self_update():
     assert "tertium_t.ico" in installer
     assert "tertium_t.ico" in spec
     assert (root / "assets" / "tertium_t.ico").exists()
+
+
+def test_windows_t_badge_icon_is_multires_asset():
+    root = Path(__file__).resolve().parents[1]
+    exe_icon = root / "assets" / "tertium.ico"
+    shortcut_icon = root / "assets" / "tertium_t.ico"
+    assert exe_icon.exists()
+    assert shortcut_icon.exists()
+    assert exe_icon.stat().st_size > 30000
+    assert shortcut_icon.stat().st_size > 30000
+    assert exe_icon.read_bytes() == shortcut_icon.read_bytes()
