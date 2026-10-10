@@ -230,3 +230,14 @@ def test_live_launch_state_and_updater_status_tools():
     assert 'def clean_update_cache' in source
     assert 'text="Open Update Log"' in source
     assert 'text="Clean Update Cache"' in source
+
+
+def test_crash_guard_uses_recent_mod_changes_as_fallback_evidence():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "def _recent_change_crash_candidates" in source
+    assert '"source": "recent-install-or-update"' in source
+    assert "2 * 60 * 60" in source
+    assert "Tertium will not auto-blame it without stronger evidence." in source
+    details = source[source.index("    def show_crash_guard_details"):source.index("    def dismiss_crash_notice")]
+    assert "evidence:" in details
