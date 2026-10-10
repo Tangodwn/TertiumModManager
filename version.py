@@ -1,2 +1,2 @@
-__version__ = "0.8.30"
-RELEASE_NAME = "Desktop Icon Cache Repair"
+__version__ = "0.8.31"
+RELEASE_NAME = "Launcher Guard & Load Order Hardening"
