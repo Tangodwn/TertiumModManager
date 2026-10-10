@@ -608,6 +608,22 @@ def is_darktide_running() -> bool:
         return False
 
 
+def is_darktide_launcher_running() -> bool:
+    """Return True when the Fatshark Darktide launcher is already open.
+
+    Starting a second Launcher.exe can make both instances contend for
+    darktide_launcher.log and Fatshark's launcher then fails with IOException
+    (sharing violation / file in use). Tertium therefore treats an existing
+    launcher as an active launch session and never starts another copy.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        return "launcher.exe" in _windows_process_image_names()
+    except Exception:
+        return False
+
+
 def ensure_darktide_not_running() -> None:
     if is_darktide_running():
         raise ModManagerError(
@@ -2729,6 +2745,19 @@ def create_diagnostic_bundle(
 
 
 def open_game_launcher(game_dir: Path) -> None:
+    if is_darktide_running():
+        raise ModManagerError("Darktide is already running.")
+
+    # Fatshark's launcher opens darktide_launcher.log with restrictive sharing.
+    # A second launcher process can therefore crash immediately with
+    # System.IO.IOException. Never create a duplicate launcher instance.
+    if is_darktide_launcher_running():
+        raise ModManagerError(
+            "The Darktide launcher is already running. Bring the existing launcher "
+            "to the foreground or close it before launching again. Tertium blocked "
+            "a second copy to prevent darktide_launcher.log from being locked."
+        )
+
     launcher = game_dir / "launcher" / "Launcher.exe"
     if launcher.exists():
         subprocess.Popen([str(launcher)], cwd=launcher.parent)
