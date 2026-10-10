@@ -131,3 +131,12 @@ def test_main_tabs_have_restrained_themed_banners():
     assert "Ogryn-inspired heavy logistics silhouette" in source
     assert "Arbites-inspired shield / containment marks" in source
     assert "Mechanicus-inspired cog, cables and machine-console blocks" in source
+
+
+def test_tab_art_asset_is_packaged():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    spec = (root / "TertiumModManager.spec").read_text(encoding="utf-8")
+    assert "tab_art_sprite.png" in source
+    assert "tab_art_sprite.png" in spec
+    assert (root / "assets" / "tab_art_sprite.png").exists()
