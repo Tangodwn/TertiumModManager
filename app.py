@@ -311,37 +311,45 @@ class TertiumApp:
         )
         canvas.create_line(28, 99, 530, 99, fill=accent, width=2)
 
-        # Right-side motifs are intentionally schematic and low-detail.
-        if theme == "play":
-            # Hive skyline and distant deployment craft.
-            for x, h in ((780, 44), (820, 70), (860, 56), (900, 86), (942, 62), (985, 76), (1030, 50), (1070, 92)):
-                canvas.create_rectangle(x, 126-h, x+26, 126, fill=mid, outline="")
-                canvas.create_polygon(x+7, 126-h, x+13, 126-h-18, x+19, 126-h, fill=mid, outline="")
-            canvas.create_polygon(1135, 42, 1190, 49, 1216, 60, 1185, 64, 1142, 58, fill="#303b43", outline=accent, width=1)
-        elif theme == "mods":
-            # Ogryn-inspired heavy logistics silhouette with stacked supply crates.
-            canvas.create_oval(1015, 18, 1065, 65, fill="#29343c", outline=accent, width=1)
-            canvas.create_polygon(980, 118, 992, 68, 1018, 48, 1065, 48, 1090, 72, 1110, 118, fill="#263038", outline="#53636f")
-            canvas.create_rectangle(1095, 72, 1170, 118, fill="#242d33", outline=accent)
-            canvas.create_rectangle(1178, 84, 1240, 118, fill="#20292f", outline="#53636f")
-            canvas.create_line(1110, 82, 1158, 82, fill="#657680", width=2)
-        elif theme == "recovery":
-            # Arbites-inspired shield / containment marks.
-            canvas.create_polygon(1040, 16, 1112, 16, 1132, 42, 1123, 90, 1076, 120, 1029, 90, 1020, 42, fill="#272125", outline=accent, width=2)
-            canvas.create_line(1076, 31, 1076, 101, fill="#6d4546", width=5)
-            canvas.create_line(1048, 66, 1104, 66, fill="#6d4546", width=5)
-            for x in (1160, 1190, 1220):
-                canvas.create_rectangle(x, 42, x+14, 112, fill="#2d2225", outline="#6d4546")
-        else:
-            # Mechanicus-inspired cog, cables and machine-console blocks.
-            cx, cy, r = 1080, 66, 34
-            canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=accent, width=3)
-            canvas.create_oval(cx-13, cy-13, cx+13, cy+13, outline="#765236", width=3)
-            for dx, dy in ((0,-48),(0,48),(-48,0),(48,0),(-34,-34),(34,-34),(-34,34),(34,34)):
-                canvas.create_rectangle(cx+dx-7, cy+dy-7, cx+dx+7, cy+dy+7, fill="#36251e", outline=accent)
-            canvas.create_line(1138, 34, 1210, 18, 1250, 40, fill="#6d4a34", width=3, smooth=True)
-            canvas.create_line(1138, 75, 1200, 88, 1250, 72, fill="#6d4a34", width=3, smooth=True)
-            canvas.create_rectangle(1170, 92, 1260, 120, fill="#241d19", outline=accent)
+        # Use the packaged illustrated banner sprite when available.  The artwork
+        # occupies only the right side of the banner so the launcher remains a
+        # professional utility first and the setting art stays atmospheric.
+        art_loaded = False
+        try:
+            if not hasattr(self, "_tab_art_sprite"):
+                self._tab_art_sprite = tk.PhotoImage(file=str(bundled_resource("assets", "tab_art_sprite.png")))
+                self._tab_art_images = {}
+            frame_index = {"play": 0, "mods": 1, "recovery": 2, "mechanicus": 4}.get(theme, 0)
+            art = tk.PhotoImage(width=600, height=125)
+            art.tk.call(
+                str(art), "copy", str(self._tab_art_sprite),
+                "-from", 0, frame_index * 125, 600, (frame_index + 1) * 125,
+                "-to", 0, 0,
+            )
+            self._tab_art_images[theme] = art
+            canvas.create_image(620, 3, image=art, anchor="nw")
+            # A soft dark veil keeps the artwork behind the UI hierarchy.
+            canvas.create_rectangle(585, 0, 760, 132, fill=bg, outline="", stipple="gray50")
+            art_loaded = True
+        except Exception:
+            art_loaded = False
+
+        if not art_loaded:
+            # Lightweight fallback motifs keep the launcher usable if an asset is
+            # missing from a development build.
+            if theme == "play":
+                for x, h in ((780, 44), (820, 70), (860, 56), (900, 86), (942, 62), (985, 76), (1030, 50), (1070, 92)):
+                    canvas.create_rectangle(x, 126-h, x+26, 126, fill=mid, outline="")
+                    canvas.create_polygon(x+7, 126-h, x+13, 126-h-18, x+19, 126-h, fill=mid, outline="")
+            elif theme == "mods":
+                canvas.create_oval(1015, 18, 1065, 65, fill="#29343c", outline=accent, width=1)
+                canvas.create_polygon(980, 118, 992, 68, 1018, 48, 1065, 48, 1090, 72, 1110, 118, fill="#263038", outline="#53636f")
+            elif theme == "recovery":
+                canvas.create_polygon(1040, 16, 1112, 16, 1132, 42, 1123, 90, 1076, 120, 1029, 90, 1020, 42, fill="#272125", outline=accent, width=2)
+            else:
+                cx, cy, r = 1080, 66, 34
+                canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=accent, width=3)
+                canvas.create_oval(cx-13, cy-13, cx+13, cy+13, outline="#765236", width=3)
 
         # A faint top/bottom rule gives the banner a manufactured-panel feel.
         canvas.create_line(0, 2, 1400, 2, fill="#3b444b")
