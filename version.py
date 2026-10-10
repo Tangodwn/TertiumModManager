@@ -1,2 +1,2 @@
-__version__ = "0.8.28"
-RELEASE_NAME = "Shortcut Icon Repair"
+__version__ = "0.8.29"
+RELEASE_NAME = "True T Badge Icon"
