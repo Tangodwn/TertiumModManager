@@ -128,9 +128,11 @@ def test_main_tabs_have_restrained_themed_banners():
     assert '"mods",' in source
     assert '"recovery",' in source
     assert '"mechanicus",' in source
-    assert "Ogryn-inspired heavy logistics silhouette" in source
-    assert "Arbites-inspired shield / containment marks" in source
-    assert "Mechanicus-inspired cog, cables and machine-console blocks" in source
+    assert 'bundled_resource("assets", "tab_art_sprite.png")' in source
+    assert "frame_index" in source
+    assert '"mods": 1' in source
+    assert '"recovery": 2' in source
+    assert '"mechanicus": 4' in source
 
 
 def test_tab_art_asset_is_packaged():
