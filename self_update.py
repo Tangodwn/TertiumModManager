@@ -270,7 +270,7 @@ def schedule_windows_package_update(package: Path, current_pid: int | None = Non
         "  Copy-Item -Path (Join-Path $stage '*') -Destination $install -Recurse -Force -ErrorAction Stop\n"
         "  if (-not (Test-Path $restart)) { throw 'Updated executable is missing after replacement.' }\n"
         "  Add-Content -LiteralPath $log -Value 'Application files replaced.'\n"
-        "  $icon = Join-Path $install 'assets\\tertium_t.ico'\n"
+        "  $icon = Join-Path $install 'tertium_desktop_v3.ico'\n"
         "  if (Test-Path $icon) {\n"
         "    try {\n"
         "      $shell = New-Object -ComObject WScript.Shell\n"
