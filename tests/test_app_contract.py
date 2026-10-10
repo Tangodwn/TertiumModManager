@@ -124,15 +124,18 @@ def test_main_tabs_have_restrained_themed_banners():
     assert '"DEPLOYMENT"' in source
     assert '"MOD CONTROL"' in source
     assert '"RECOVERY & CRASH GUARD"' in source
-    assert '"MACHINE SETTINGS & TOOLS"' in source
+    assert '"TOOLS & DIAGNOSTICS"' in source
+    assert '"MACHINE SETTINGS"' in source
     assert '"mods",' in source
     assert '"recovery",' in source
-    assert '"mechanicus",' in source
+    assert '"tools",' in source
+    assert '"settings",' in source
     assert 'bundled_resource("assets", "tab_art_sprite.png")' in source
     assert "frame_index" in source
     assert '"mods": 1' in source
     assert '"recovery": 2' in source
-    assert '"mechanicus": 4' in source
+    assert '"tools": 3' in source
+    assert '"settings": 4' in source
 
 
 def test_tab_art_asset_is_packaged():
@@ -142,3 +145,16 @@ def test_tab_art_asset_is_packaged():
     assert "tab_art_sprite.png" in source
     assert "tab_art_sprite.png" in spec
     assert (root / "assets" / "tab_art_sprite.png").exists()
+
+
+def test_settings_and_tools_are_separate_tabs():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert 'settings_tab = ttk.Frame(notebook, padding=10)' in source
+    assert 'notebook.add(tools_tab, text="  Tools & Diagnostics  ")' in source
+    assert 'notebook.add(settings_tab, text="  Settings  ")' in source
+    assert 'self.settings_tab = settings_tab' in source
+    assert 'interface_box = ttk.LabelFrame(settings_tab' in source
+    assert 'settings_top = ttk.Frame(settings_tab)' in source
+    assert 'diag = ttk.LabelFrame(tools_tab' in source
+    assert 'self.notebook.hide(self.tools_tab)' in source
