@@ -6,7 +6,7 @@ a = Analysis(
     [str(root / "app.py")],
     pathex=[str(root)],
     binaries=[],
-    datas=[(str(root / "VERSION"), "."), (str(root / "assets" / "tertium.ico"), "assets"), (str(root / "assets" / "tertium_hive.png"), "assets"), (str(root / "assets" / "tab_art_sprite.png"), "assets")],
+    datas=[(str(root / "VERSION"), "."), (str(root / "assets" / "tertium.ico"), "assets"), (str(root / "assets" / "tertium_t.ico"), "assets"), (str(root / "assets" / "tertium_hive.png"), "assets"), (str(root / "assets" / "tab_art_sprite.png"), "assets")],
     hiddenimports=["tkinter", "tkinter.ttk", "tkinter.filedialog", "tkinter.messagebox", "tkinter.simpledialog"],
     hookspath=[],
     hooksconfig={},
