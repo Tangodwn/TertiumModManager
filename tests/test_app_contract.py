@@ -241,3 +241,18 @@ def test_crash_guard_uses_recent_mod_changes_as_fallback_evidence():
     assert "Tertium will not auto-blame it without stronger evidence." in source
     details = source[source.index("    def show_crash_guard_details"):source.index("    def dismiss_crash_notice")]
     assert "evidence:" in details
+
+
+def test_guided_update_queue_persists_and_resumes():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "def _save_guided_update_state" in source
+    assert "def _restore_guided_update_state" in source
+    assert "def _clear_guided_update_state" in source
+    assert "def _guided_update_progress_text" in source
+    assert 'self.config["guided_update_queue"]' in source
+    assert '"Resume Update All"' in source
+    assert "paused from the previous session" in source
+    assert 'self.guided_update_status = StringVar(value="Update queue: idle")' in source
+    assert "self._save_guided_update_state()" in source
+    assert "resume from this mod" in source
