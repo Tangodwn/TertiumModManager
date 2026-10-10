@@ -115,3 +115,19 @@ def test_hybrid_visual_polish_has_borders_and_brand_graphic():
     assert 'style="DangerCard.TLabelframe"' in source
     assert 'style="AccentCard.TLabelframe"' in source
     assert 'tree_shell = ttk.Frame(mods_tab, style="Border.TFrame"' in source
+
+
+def test_main_tabs_have_restrained_themed_banners():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text(encoding="utf-8")
+    assert "def _build_tab_banner" in source
+    assert '"DEPLOYMENT"' in source
+    assert '"MOD CONTROL"' in source
+    assert '"RECOVERY & CRASH GUARD"' in source
+    assert '"MACHINE SETTINGS & TOOLS"' in source
+    assert '"mods",' in source
+    assert '"recovery",' in source
+    assert '"mechanicus",' in source
+    assert "Ogryn-inspired heavy logistics silhouette" in source
+    assert "Arbites-inspired shield / containment marks" in source
+    assert "Mechanicus-inspired cog, cables and machine-console blocks" in source
