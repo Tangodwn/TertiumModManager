@@ -2623,7 +2623,7 @@ class TertiumApp:
             result = apply_mod_profile(
                 self.game_dir,
                 states,
-                maintain_load_order=self.store.get(AML_MOD_ID) is None,
+                maintain_load_order=True,
             )
             sync_registry_folders(self.game_dir, self.store)
             self.log_line(f"Applied profile '{name}'; changed {len(result['changed'])} mod(s).")
@@ -2661,7 +2661,7 @@ class TertiumApp:
             result = enter_troubleshooting_safe_mode(
                 self.game_dir,
                 self.store,
-                maintain_load_order=self.store.get(AML_MOD_ID) is None,
+                maintain_load_order=True,
             )
             self.log_line(f"Entered troubleshooting safe mode; changed {len(result['changed'])} mod(s).")
             self.refresh()
@@ -2684,7 +2684,7 @@ class TertiumApp:
             result = restore_latest_mod_state(
                 self.game_dir,
                 self.store,
-                maintain_load_order=self.store.get(AML_MOD_ID) is None,
+                maintain_load_order=True,
             )
             self.log_line(
                 f"Restored mod-state snapshot ({result.get('reason') or 'unknown'}); "
@@ -2887,12 +2887,11 @@ class TertiumApp:
             return
         try:
             result = restore_latest_removed_mod(self.game_dir, self.store)
-            if self.store.get(AML_MOD_ID) is None:
-                enabled = [
-                    m["logical_name"] for m in scan_installed_mods(self.game_dir)
-                    if m["enabled"] and m["logical_name"].lower() != "dmf"
-                ]
-                write_mod_load_order(self.game_dir, enabled)
+            enabled = [
+                m["logical_name"] for m in scan_installed_mods(self.game_dir)
+                if m["enabled"] and m["logical_name"].lower() != "dmf"
+            ]
+            write_mod_load_order(self.game_dir, enabled)
             self.log_line(f"Restored removed mod {result['logical_name']}.")
             self.refresh()
             messagebox.showinfo("Mod restored", f"Restored {result['logical_name']} to the Darktide mods folder.")
@@ -2998,12 +2997,11 @@ class TertiumApp:
             return
         try:
             result = rollback_mod_update(self.game_dir, self.store, rec.mod_id)
-            if self.store.get(AML_MOD_ID) is None:
-                enabled = [
-                    m["logical_name"] for m in scan_installed_mods(self.game_dir)
-                    if m["enabled"] and m["logical_name"].lower() != "dmf"
-                ]
-                write_mod_load_order(self.game_dir, enabled)
+            enabled = [
+                m["logical_name"] for m in scan_installed_mods(self.game_dir)
+                if m["enabled"] and m["logical_name"].lower() != "dmf"
+            ]
+            write_mod_load_order(self.game_dir, enabled)
             self.log_line(f"Rolled back {name} to {result.get('version') or 'the previous tracked version'}.")
             self.refresh()
             messagebox.showinfo("Rollback complete", f"Restored {name} to the previous Tertium-managed version.")
