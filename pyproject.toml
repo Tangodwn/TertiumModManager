@@ -1,6 +1,6 @@
 [project]
 name = "tertium-mod-manager"
-version = "0.8.28"
+version = "0.8.29"
 description = "Darktide-focused Windows mod manager and post-update loader repair utility"
 requires-python = ">=3.11"
 license = { text = "MIT" }
