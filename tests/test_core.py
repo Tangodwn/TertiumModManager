@@ -1251,3 +1251,16 @@ def test_learned_crash_candidate_matches_same_build_version_and_error():
             "100",
             {"numericui": "2.0"},
         ) == []
+
+
+def test_darktide_launcher_guard_uses_native_process_enumerator():
+    import inspect
+    import core
+
+    source = inspect.getsource(core.is_darktide_launcher_running)
+    assert "_windows_process_image_names" in source
+    assert '"launcher.exe"' in source
+    launcher = inspect.getsource(core.open_game_launcher)
+    assert "is_darktide_launcher_running()" in launcher
+    assert "darktide_launcher.log" in launcher
+    assert "subprocess.Popen" in launcher
