@@ -165,10 +165,10 @@ def test_shortcut_icon_refreshes_after_self_update():
     updater = (root / "self_update.py").read_text(encoding="utf-8")
     installer = (root / "installer" / "TertiumModManager.iss").read_text(encoding="utf-8")
     spec = (root / "TertiumModManager.spec").read_text(encoding="utf-8")
-    assert "tertium_t.ico" in updater
+    assert "tertium_desktop_v3.ico" in updater
     assert "WScript.Shell" in updater
     assert "Shortcut icon refreshed" in updater
-    assert "tertium_t.ico" in installer
+    assert "tertium_desktop_v3.ico" in installer
     assert "tertium_t.ico" in spec
     assert (root / "assets" / "tertium_t.ico").exists()
 
