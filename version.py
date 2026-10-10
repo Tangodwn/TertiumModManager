@@ -1,2 +1,2 @@
-__version__ = "0.8.31"
-RELEASE_NAME = "Launcher Guard & Load Order Hardening"
+__version__ = "0.8.32"
+RELEASE_NAME = "Smart Launcher Reuse"
