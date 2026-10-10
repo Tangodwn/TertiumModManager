@@ -182,3 +182,19 @@ def test_windows_t_badge_icon_is_multires_asset():
     assert exe_icon.stat().st_size > 30000
     assert shortcut_icon.stat().st_size > 30000
     assert exe_icon.read_bytes() == shortcut_icon.read_bytes()
+
+
+def test_startup_repairs_cached_windows_shortcut_icon():
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "app.py").read_text(encoding="utf-8")
+    winutil = (root / "winutil.py").read_text(encoding="utf-8")
+    updater = (root / "self_update.py").read_text(encoding="utf-8")
+    installer = (root / "installer" / "TertiumModManager.iss").read_text(encoding="utf-8")
+    spec = (root / "TertiumModManager.spec").read_text(encoding="utf-8")
+    assert "refresh_tertium_shortcuts" in app
+    assert "tertium_desktop_v3.ico" in winutil
+    assert "SHChangeNotify" in winutil
+    assert "tertium_desktop_v3.ico" in updater
+    assert "tertium_desktop_v3.ico" in installer
+    assert 'tertium_desktop_v3.ico"), ".")' in spec
+    assert (root / "assets" / "tertium_desktop_v3.ico").exists()
