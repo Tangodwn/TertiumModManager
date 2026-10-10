@@ -274,7 +274,8 @@ class TertiumApp:
             "play": ("#11171c", "#28323a", "#b78645"),
             "mods": ("#11171b", "#24313a", "#8ca6b8"),
             "recovery": ("#171214", "#382025", "#b45a54"),
-            "mechanicus": ("#171312", "#38241f", "#b8804a"),
+            "tools": ("#12171a", "#253239", "#9a8761"),
+            "settings": ("#171312", "#38241f", "#b8804a"),
         }
         bg, mid, accent = palette.get(theme, palette["play"])
         shell = tk.Frame(
@@ -319,7 +320,7 @@ class TertiumApp:
             if not hasattr(self, "_tab_art_sprite"):
                 self._tab_art_sprite = tk.PhotoImage(file=str(bundled_resource("assets", "tab_art_sprite.png")))
                 self._tab_art_images = {}
-            frame_index = {"play": 0, "mods": 1, "recovery": 2, "mechanicus": 4}.get(theme, 0)
+            frame_index = {"play": 0, "mods": 1, "recovery": 2, "tools": 3, "settings": 4}.get(theme, 0)
             art = tk.PhotoImage(width=600, height=125)
             art.tk.call(
                 str(art), "copy", str(self._tab_art_sprite),
@@ -496,15 +497,18 @@ class TertiumApp:
         mods_tab = ttk.Frame(notebook, padding=10)
         recovery_tab = ttk.Frame(notebook, padding=10)
         tools_tab = ttk.Frame(notebook, padding=10)
+        settings_tab = ttk.Frame(notebook, padding=10)
         notebook.add(play_tab, text="  Play  ")
         notebook.add(mods_tab, text="  Mods  ")
         notebook.add(recovery_tab, text="  Profiles & Recovery  ")
-        notebook.add(tools_tab, text="  Diagnostics & Settings  ")
+        notebook.add(tools_tab, text="  Tools & Diagnostics  ")
+        notebook.add(settings_tab, text="  Settings  ")
         self.notebook = notebook
         self.play_tab = play_tab
         self.mods_tab = mods_tab
         self.recovery_tab = recovery_tab
         self.tools_tab = tools_tab
+        self.settings_tab = settings_tab
 
         self._build_tab_banner(
             play_tab,
@@ -526,9 +530,15 @@ class TertiumApp:
         )
         self._build_tab_banner(
             tools_tab,
-            "MACHINE SETTINGS & TOOLS",
-            "Configure launcher systems, diagnostics, paths, Nexus, and maintenance.",
-            "mechanicus",
+            "TOOLS & DIAGNOSTICS",
+            "Run maintenance, health checks, loader repair, and support utilities.",
+            "tools",
+        )
+        self._build_tab_banner(
+            settings_tab,
+            "MACHINE SETTINGS",
+            "Configure Darktide paths, Nexus, updates, and Tertium interface behavior.",
+            "settings",
         )
 
         # SIMPLE HOME (default)
@@ -627,7 +637,7 @@ class TertiumApp:
         ttk.Button(simple_links, text="Manage Mods", command=lambda: self.notebook.select(self.mods_tab)).pack(side=LEFT, fill=X, expand=True, padx=(0, 4))
         ttk.Button(simple_links, text="Discover Mods", command=self.open_nexus_catalog).pack(side=LEFT, fill=X, expand=True, padx=4)
         ttk.Button(simple_links, text="Profiles", command=self._open_profiles).pack(side=LEFT, fill=X, expand=True, padx=4)
-        ttk.Button(simple_links, text="Settings", command=lambda: self.notebook.select(self.tools_tab)).pack(side=LEFT, fill=X, expand=True, padx=(4, 0))
+        ttk.Button(simple_links, text="Settings", command=lambda: self.notebook.select(self.settings_tab)).pack(side=LEFT, fill=X, expand=True, padx=(4, 0))
 
         # ADVANCED PLAY DASHBOARD
         play_main = ttk.Panedwindow(play_tab, orient="horizontal")
@@ -787,8 +797,8 @@ class TertiumApp:
         for i in range(3):
             rec_grid.columnconfigure(i, weight=1)
 
-        # DIAGNOSTICS / SETTINGS TAB
-        interface_box = ttk.LabelFrame(tools_tab, text=" Interface ", style="AccentCard.TLabelframe", padding=12)
+        # SETTINGS TAB
+        interface_box = ttk.LabelFrame(settings_tab, text=" Interface ", style="AccentCard.TLabelframe", padding=12)
         interface_box.pack(fill=X, pady=(0, 10))
         interface_copy = ttk.Frame(interface_box)
         interface_copy.pack(side=LEFT, fill=X, expand=True)
@@ -807,7 +817,7 @@ class TertiumApp:
         )
         self.interface_mode_button.pack(side=RIGHT, padx=(12, 0), ipadx=8, ipady=4)
 
-        settings_top = ttk.Frame(tools_tab)
+        settings_top = ttk.Frame(settings_tab)
         settings_top.pack(fill=X)
         game_box = ttk.LabelFrame(settings_top, text=" Darktide ", style="Card.TLabelframe", padding=12)
         game_box.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 5))
@@ -821,12 +831,13 @@ class TertiumApp:
         ttk.Button(nexusrow, text="Set API Key", command=self.set_api_key).pack(side=LEFT, padx=(0, 6))
         ttk.Button(nexusrow, text="Register Nexus Links", command=self.register_nxm).pack(side=LEFT)
 
-        app_update_box = ttk.LabelFrame(tools_tab, text=" Tertium Updates ", padding=12)
+        app_update_box = ttk.LabelFrame(settings_tab, text=" Tertium Updates ", style="Card.TLabelframe", padding=12)
         app_update_box.pack(fill=X, pady=(10, 0))
         ttk.Label(app_update_box, textvariable=self.app_update_status, wraplength=900, justify="left").pack(side=LEFT, fill=X, expand=True)
         ttk.Button(app_update_box, textvariable=self.app_update_text, command=self.check_or_install_app_update).pack(side=RIGHT, padx=(12, 0))
 
-        diag = ttk.LabelFrame(tools_tab, text=" Diagnostics & maintenance ", padding=12)
+        # TOOLS / DIAGNOSTICS TAB
+        diag = ttk.LabelFrame(tools_tab, text=" Diagnostics & maintenance ", style="AccentCard.TLabelframe", padding=12)
         self.advanced_diag = diag
         diag.pack(fill=X, pady=(10, 0))
         drow1 = ttk.Frame(diag)
@@ -842,7 +853,7 @@ class TertiumApp:
         ttk.Button(drow2, text="Open AML on Nexus", command=lambda: self.open_nexus(AML_MOD_ID)).pack(side=LEFT, padx=(0, 6))
         ttk.Button(drow2, text="Adopt Installed Mods", command=self.adopt_existing_mods).pack(side=LEFT)
 
-        notes = ttk.Frame(tools_tab, style="Panel.TFrame", padding=14)
+        notes = ttk.Frame(settings_tab, style="Panel.TFrame", padding=14)
         notes.pack(fill=X, pady=(10, 0))
         ttk.Label(notes, text="Free by design", style="StatusGood.TLabel").pack(anchor="w")
         ttk.Label(
@@ -963,7 +974,12 @@ class TertiumApp:
             self.notebook.tab(self.play_tab, text="  Play  ")
             self.notebook.tab(self.mods_tab, text="  Mods  ")
             self.notebook.tab(self.recovery_tab, text="  Profiles  " if simple else "  Profiles & Recovery  ")
-            self.notebook.tab(self.tools_tab, text="  Settings  " if simple else "  Diagnostics & Settings  ")
+            self.notebook.tab(self.settings_tab, text="  Settings  ")
+            if simple:
+                self.notebook.hide(self.tools_tab)
+            else:
+                self.notebook.add(self.tools_tab, text="  Tools & Diagnostics  ")
+                self.notebook.insert(self.settings_tab, self.tools_tab)
         except Exception:
             pass
 
