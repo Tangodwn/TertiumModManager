@@ -21,7 +21,7 @@ OutputBaseFilename=TertiumModManager-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=..\assets\tertium.ico
+SetupIconFile=..\assets\tertium_t.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no
@@ -34,8 +34,8 @@ Name: "nxmhandler"; Description: "Use Tertium for Nexus Mod Manager Download lin
 Source: "..\dist\TertiumModManager\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\tertium.ico"
-Name: "{autodesktop}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\tertium.ico"; Tasks: desktopicon
+Name: "{group}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\tertium_t.ico"
+Name: "{autodesktop}\Tertium Mod Manager"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\tertium_t.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\nxm"; ValueType: string; ValueName: ""; ValueData: "URL:Nexus Mods Protocol"; Flags: uninsdeletekey; Tasks: nxmhandler
