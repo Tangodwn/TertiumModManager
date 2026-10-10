@@ -262,6 +262,91 @@ class TertiumApp:
         data["api_key"] = protect_secret(self.api_key) if self.api_key else ""
         save_json(self.config_path, data)
 
+    def _build_tab_banner(self, parent, title: str, subtitle: str, theme: str) -> None:
+        """Create a restrained, code-rendered thematic banner for a main tab.
+
+        These banners deliberately use simple silhouettes and industrial motifs instead
+        of full-screen artwork.  That keeps Tertium readable and professional while
+        giving each workflow its own visual identity.
+        """
+        tk = __import__("tkinter")
+        palette = {
+            "play": ("#11171c", "#28323a", "#b78645"),
+            "mods": ("#11171b", "#24313a", "#8ca6b8"),
+            "recovery": ("#171214", "#382025", "#b45a54"),
+            "mechanicus": ("#171312", "#38241f", "#b8804a"),
+        }
+        bg, mid, accent = palette.get(theme, palette["play"])
+        shell = tk.Frame(
+            parent,
+            bg=accent,
+            highlightbackground=accent,
+            highlightthickness=1,
+            bd=0,
+        )
+        shell.pack(fill=X, pady=(0, 10))
+        canvas = tk.Canvas(
+            shell,
+            height=132,
+            bg=bg,
+            highlightthickness=0,
+            bd=0,
+        )
+        canvas.pack(fill=X, padx=2, pady=2)
+
+        # Quiet industrial background grid.
+        for x in range(0, 1400, 70):
+            canvas.create_line(x, 0, x, 132, fill="#1c2329", width=1)
+        for y in range(0, 133, 33):
+            canvas.create_line(0, y, 1400, y, fill="#1c2329", width=1)
+
+        # Left-side typography remains the dominant visual element.
+        canvas.create_text(
+            26, 34, text=title, anchor="w", fill="#e9edf0",
+            font=("Segoe UI Semibold", 23),
+        )
+        canvas.create_text(
+            28, 72, text=subtitle, anchor="w", fill="#aab4bd",
+            font=("Segoe UI", 10),
+        )
+        canvas.create_line(28, 99, 530, 99, fill=accent, width=2)
+
+        # Right-side motifs are intentionally schematic and low-detail.
+        if theme == "play":
+            # Hive skyline and distant deployment craft.
+            for x, h in ((780, 44), (820, 70), (860, 56), (900, 86), (942, 62), (985, 76), (1030, 50), (1070, 92)):
+                canvas.create_rectangle(x, 126-h, x+26, 126, fill=mid, outline="")
+                canvas.create_polygon(x+7, 126-h, x+13, 126-h-18, x+19, 126-h, fill=mid, outline="")
+            canvas.create_polygon(1135, 42, 1190, 49, 1216, 60, 1185, 64, 1142, 58, fill="#303b43", outline=accent, width=1)
+        elif theme == "mods":
+            # Ogryn-inspired heavy logistics silhouette with stacked supply crates.
+            canvas.create_oval(1015, 18, 1065, 65, fill="#29343c", outline=accent, width=1)
+            canvas.create_polygon(980, 118, 992, 68, 1018, 48, 1065, 48, 1090, 72, 1110, 118, fill="#263038", outline="#53636f")
+            canvas.create_rectangle(1095, 72, 1170, 118, fill="#242d33", outline=accent)
+            canvas.create_rectangle(1178, 84, 1240, 118, fill="#20292f", outline="#53636f")
+            canvas.create_line(1110, 82, 1158, 82, fill="#657680", width=2)
+        elif theme == "recovery":
+            # Arbites-inspired shield / containment marks.
+            canvas.create_polygon(1040, 16, 1112, 16, 1132, 42, 1123, 90, 1076, 120, 1029, 90, 1020, 42, fill="#272125", outline=accent, width=2)
+            canvas.create_line(1076, 31, 1076, 101, fill="#6d4546", width=5)
+            canvas.create_line(1048, 66, 1104, 66, fill="#6d4546", width=5)
+            for x in (1160, 1190, 1220):
+                canvas.create_rectangle(x, 42, x+14, 112, fill="#2d2225", outline="#6d4546")
+        else:
+            # Mechanicus-inspired cog, cables and machine-console blocks.
+            cx, cy, r = 1080, 66, 34
+            canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=accent, width=3)
+            canvas.create_oval(cx-13, cy-13, cx+13, cy+13, outline="#765236", width=3)
+            for dx, dy in ((0,-48),(0,48),(-48,0),(48,0),(-34,-34),(34,-34),(-34,34),(34,34)):
+                canvas.create_rectangle(cx+dx-7, cy+dy-7, cx+dx+7, cy+dy+7, fill="#36251e", outline=accent)
+            canvas.create_line(1138, 34, 1210, 18, 1250, 40, fill="#6d4a34", width=3, smooth=True)
+            canvas.create_line(1138, 75, 1200, 88, 1250, 72, fill="#6d4a34", width=3, smooth=True)
+            canvas.create_rectangle(1170, 92, 1260, 120, fill="#241d19", outline=accent)
+
+        # A faint top/bottom rule gives the banner a manufactured-panel feel.
+        canvas.create_line(0, 2, 1400, 2, fill="#3b444b")
+        canvas.create_line(0, 129, 1400, 129, fill="#07090b")
+
     def _build_ui(self) -> None:
         # Tertium intentionally stays dependency-free at runtime, so the launcher uses
         # a themed ttk interface rather than pulling in a third-party UI framework.
@@ -412,6 +497,31 @@ class TertiumApp:
         self.mods_tab = mods_tab
         self.recovery_tab = recovery_tab
         self.tools_tab = tools_tab
+
+        self._build_tab_banner(
+            play_tab,
+            "DEPLOYMENT",
+            "Launch Darktide, prepare the mod stack, and enter Tertium.",
+            "play",
+        )
+        self._build_tab_banner(
+            mods_tab,
+            "MOD CONTROL",
+            "Manage installed mods, updates, load order, and profiles.",
+            "mods",
+        )
+        self._build_tab_banner(
+            recovery_tab,
+            "RECOVERY & CRASH GUARD",
+            "Contain failures, isolate suspects, and restore operational stability.",
+            "recovery",
+        )
+        self._build_tab_banner(
+            tools_tab,
+            "MACHINE SETTINGS & TOOLS",
+            "Configure launcher systems, diagnostics, paths, Nexus, and maintenance.",
+            "mechanicus",
+        )
 
         # SIMPLE HOME (default)
         simple_home = ttk.Frame(play_tab)
