@@ -1,2 +1,2 @@
-__version__ = "0.8.23"
-RELEASE_NAME = "Hybrid Visual Refresh"
+__version__ = "0.8.24"
+RELEASE_NAME = "Themed Tab Banners"
